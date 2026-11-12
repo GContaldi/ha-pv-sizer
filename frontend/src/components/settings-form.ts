@@ -65,7 +65,10 @@ export class PvSettingsForm extends LitElement {
         background: var(--divider-color);
       }
       .chips input {
-        width: 92px;
+        width: 72px;
+        height: 28px;
+        border-radius: 999px;
+        text-align: center;
       }
       @container (max-width: 700px) {
         .sizes {
@@ -137,7 +140,7 @@ export class PvSettingsForm extends LitElement {
           : html`<input
               type="text"
               inputmode="decimal"
-              placeholder="aggiungi ${unit}"
+              placeholder="+ ${unit}"
               aria-label="Aggiungi taglia in ${unit}"
               @change=${add}
             />`}
