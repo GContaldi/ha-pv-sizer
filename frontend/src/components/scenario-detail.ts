@@ -27,8 +27,8 @@ export class PvScenarioDetail extends LitElement {
       }
       .stats {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 20px 16px;
       }
       .stat-value {
         font-size: 22px;
@@ -107,7 +107,7 @@ export class PvScenarioDetail extends LitElement {
       }
       @container (max-width: 800px) {
         .stats {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
         .two,
         .costs {
@@ -237,9 +237,12 @@ export class PvScenarioDetail extends LitElement {
           ? html`
               ${this.stat(f.eur(s.bill_eur), "Bolletta annua", `oggi ${f.eur(todayBill)}`)}
               ${this.stat(f.eur(s.saving_eur), "Risparmio annuo", `−${f.pct(s.saving_eur / todayBill)} sulla bolletta`, s.saving_eur > 0)}
+              ${this.stat(f.years(s.payback_years), "Rientro", `${f.eur(s.saving_eur)}/anno su ${f.eur(s.investment_eur)}`)}
+              ${this.stat(f.eur(s.gain_eur), `Guadagno in ${this.config.horizon_years} anni`, "netto, ricambi compresi", s.gain_eur > 0)}
+              ${this.stat(f.kwh(s.consumption_kwh), "Consumo di casa", `${f.num(s.import_kwh, 0)} kWh ancora dalla rete`)}
+              ${this.stat(f.kwh(s.pv_kwh), "Produzione FV", `${f.num(s.pv_kwh / s.pv_kwp, 0)} kWh per kWp`)}
               ${this.stat(f.pct(s.self_sufficiency), "Autosufficienza", `${f.num(s.consumption_kwh - s.import_kwh, 0)} su ${f.kwh(s.consumption_kwh)}`)}
               ${this.stat(f.pct(s.self_consumption), "Autoconsumo", `${f.num(s.pv_used_kwh, 0)} su ${f.kwh(s.pv_kwh)}`)}
-              ${this.stat(f.years(s.payback_years), "Rientro", `${f.eur(s.saving_eur)}/anno su ${f.eur(s.investment_eur)}`)}
             `
           : html`
               ${this.stat(f.eur(s.bill_eur), "Bolletta annua", "incluse le quote fisse")}
@@ -268,7 +271,7 @@ export class PvScenarioDetail extends LitElement {
         ${hasBattery && toBattery > 0
           ? html`<span class="small muted">
               La batteria restituisce ${f.num(fromBattery, 0)} dei ${f.kwh(toBattery)} caricati: ${f.kwh(Math.max(0, toBattery - fromBattery))} si perdono tra carica e scarica.
-              Per questo l'FV usato in casa (${f.kwh(direct + fromBattery)}) è un po' meno dell'FV autoconsumato (${f.kwh(e.pv_used_kwh)}).
+              Per questo l'FV usato in casa (${f.kwh(e.consumption_kwh - e.import_kwh)}) è un po' meno dell'FV autoconsumato (${f.kwh(e.pv_used_kwh)}).
             </span>`
           : nothing}
         <details class="defs" ?hidden=${!hasPv}>
