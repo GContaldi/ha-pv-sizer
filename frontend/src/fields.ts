@@ -2,26 +2,43 @@ import { html, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import { parseNumber } from "./format";
 
+export interface NumberLimits {
+  min?: number;
+  max?: number;
+  integer?: boolean;
+}
+
 export function numberField(
   label: string,
   value: number,
   suffix: string,
   locale: string,
   onCommit: (v: number) => void,
+  limits: NumberLimits = {},
 ): TemplateResult {
-  const text = value.toLocaleString(locale, { maximumFractionDigits: 6, useGrouping: false });
+  const show = (v: number) => v.toLocaleString(locale, { maximumFractionDigits: 6, useGrouping: false });
+  const text = show(value);
+  const range = limits.min !== undefined && limits.max !== undefined ? `da ${show(limits.min)} a ${show(limits.max)}` : undefined;
   return html`
     <label class="field">
       <span class="field-label">${label}</span>
       <input
         type="text"
         inputmode="decimal"
+        title=${range ?? ""}
         .value=${live(text)}
         @change=${(e: Event) => {
           const input = e.target as HTMLInputElement;
-          const v = parseNumber(input.value);
-          if (v === null) input.value = text;
-          else onCommit(v);
+          let v = parseNumber(input.value);
+          if (v === null) {
+            input.value = text;
+            return;
+          }
+          if (limits.integer) v = Math.round(v);
+          if (limits.min !== undefined) v = Math.max(limits.min, v);
+          if (limits.max !== undefined) v = Math.min(limits.max, v);
+          input.value = show(v);
+          if (v !== value) onCommit(v);
         }}
       />
       <span class="field-suffix">${suffix}</span>

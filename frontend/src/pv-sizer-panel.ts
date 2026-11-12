@@ -262,6 +262,7 @@ export class PvSizerPanel extends LitElement {
               .locale=${this.locale}
               .themeKey=${this.themeKey}
               @loads-change=${this.onLoads}
+              @navigate=${(e: CustomEvent<Tab>) => (this.tab = e.detail)}
             ></pv-loads-editor>`
           : nothing}
         ${this.tab === "impostazioni" && c
