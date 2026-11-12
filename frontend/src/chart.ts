@@ -19,6 +19,7 @@ export interface ChartColors {
   grid: string;
   gridReturn: string;
   batteryOut: string;
+  batteryIn: string;
   error: string;
   palette: string[];
 }
@@ -37,6 +38,7 @@ export function readColors(el: Element): ChartColors {
     grid: v("--energy-grid-consumption-color", "#488fc2"),
     gridReturn: v("--energy-grid-return-color", "#8353d1"),
     batteryOut: v("--energy-battery-out-color", "#4db6ac"),
+    batteryIn: v("--energy-battery-in-color", "#f06292"),
     error: v("--error-color", "#db4437"),
   };
   return { ...c, palette: [c.primary, c.solar, c.batteryOut, c.gridReturn, c.grid, c.error] };

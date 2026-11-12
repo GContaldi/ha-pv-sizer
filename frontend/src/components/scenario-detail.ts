@@ -130,9 +130,8 @@ export class PvScenarioDetail extends LitElement {
     </div>`;
   }
 
-  private balance(f: Formatters, title: string, segments: { label: string; kwh: number; color: string }[]) {
+  private balance(f: Formatters, title: string, total: number, segments: { label: string; kwh: number; color: string }[]) {
     const shown = segments.filter((s) => s.kwh >= 0.5);
-    const total = shown.reduce((a, s) => a + s.kwh, 0);
     return html`<div class="balance">
       <div class="row"><span class="strong">${title}</span><span class="spacer"></span><span class="muted">${f.kwh(total)} l'anno</span></div>
       <div class="bar">${shown.map((s) => html`<span style="flex-grow:${s.kwh};background:${s.color}"></span>`)}</div>
@@ -223,6 +222,9 @@ export class PvScenarioDetail extends LitElement {
 
     const todayBill = s.bill_eur + s.saving_eur;
     const sum = (xs: number[]) => xs.reduce((a, v) => a + v, 0);
+    const direct = sum(m.direct);
+    const fromBattery = sum(m.battery);
+    const toBattery = Math.max(0, e.pv_used_kwh - direct);
 
     return html`
       <div class="title">
@@ -249,19 +251,26 @@ export class PvScenarioDetail extends LitElement {
       <div class="stack" style="gap:16px">
         <h3>Bilancio annuo</h3>
         <div class="two">
-          ${this.balance(f, "Consumo di casa", [
-            { label: "FV diretto", kwh: sum(m.direct), color: c.solar },
-            { label: "Dalla batteria", kwh: sum(m.battery), color: c.batteryOut },
+          ${this.balance(f, "Consumo di casa", e.consumption_kwh, [
+            { label: "FV diretto", kwh: direct, color: c.solar },
+            { label: "Dalla batteria", kwh: fromBattery, color: c.batteryOut },
             { label: "Dalla rete", kwh: e.import_kwh, color: c.grid },
           ])}
           ${hasPv
-            ? this.balance(f, "Produzione FV", [
-                { label: "Usata in casa o in batteria", kwh: e.pv_used_kwh, color: c.solar },
+            ? this.balance(f, "Produzione FV", e.pv_kwh, [
+                { label: "FV diretto", kwh: direct, color: c.solar },
+                { label: "In batteria", kwh: toBattery, color: c.batteryIn },
                 { label: "Immessa in rete", kwh: e.export_kwh, color: c.gridReturn },
                 { label: "Persa (limite immissione)", kwh: e.curtailed_kwh, color: c.error },
               ])
             : nothing}
         </div>
+        ${hasBattery && toBattery > 0
+          ? html`<span class="small muted">
+              La batteria restituisce ${f.num(fromBattery, 0)} dei ${f.kwh(toBattery)} caricati: ${f.kwh(Math.max(0, toBattery - fromBattery))} si perdono tra carica e scarica.
+              Per questo l'FV usato in casa (${f.kwh(direct + fromBattery)}) è un po' meno dell'FV autoconsumato (${f.kwh(e.pv_used_kwh)}).
+            </span>`
+          : nothing}
         <details class="defs" ?hidden=${!hasPv}>
           <summary>Come si calcolano autosufficienza e autoconsumo</summary>
           <div class="two">
