@@ -1,0 +1,19 @@
+{
+  "name": "pv-sizer-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "typecheck": "tsc"
+  },
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "echarts": "^6.1.0",
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

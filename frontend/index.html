@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fotovoltaico · sviluppo</title>
+    <style>
+      :root,
+      :root[data-theme="dark"] {
+        --primary-background-color: #111111;
+        --secondary-background-color: #202020;
+        --card-background-color: #1c1c1c;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #9b9b9b;
+        --disabled-text-color: #6f6f6f;
+        --divider-color: rgba(225, 225, 225, 0.12);
+        --app-header-background-color: #101e24;
+        --app-header-text-color: #e1e1e1;
+      }
+      :root[data-theme="light"] {
+        --primary-background-color: #fafafa;
+        --secondary-background-color: #e5e5e5;
+        --card-background-color: #ffffff;
+        --primary-text-color: #212121;
+        --secondary-text-color: #727272;
+        --disabled-text-color: #bdbdbd;
+        --divider-color: rgba(0, 0, 0, 0.12);
+        --app-header-background-color: #03a9f4;
+        --app-header-text-color: #ffffff;
+      }
+      :root {
+        --primary-color: #03a9f4;
+        --text-primary-color: #ffffff;
+        --error-color: #db4437;
+        --warning-color: #ffa600;
+        --success-color: #43a047;
+        --info-color: #039be5;
+        --energy-solar-color: #ff9800;
+        --energy-grid-consumption-color: #488fc2;
+        --energy-grid-return-color: #8353d1;
+        --energy-battery-out-color: #4db6ac;
+        --energy-battery-in-color: #f06292;
+        --ha-card-border-radius: 12px;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--primary-background-color);
+        font-family: Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .dev-bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 6px 16px;
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        border-bottom: 1px dashed var(--divider-color);
+      }
+      .dev-bar button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 1px solid var(--divider-color);
+        border-radius: 6px;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dev-bar">
+      <span>Ambiente di sviluppo · HA e backend simulati</span>
+      <button id="theme">Tema chiaro/scuro</button>
+      <button id="narrow">Schermo stretto</button>
+      <button id="reset">Ripristina dati demo</button>
+    </div>
+    <script type="module" src="/dev/main.ts"></script>
+  </body>
+</html>

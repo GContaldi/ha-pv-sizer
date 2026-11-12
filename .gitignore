@@ -1,0 +1,4 @@
+node_modules/
+.DS_Store
+custom_components/pv_sizer/frontend/
+.playwright-mcp/
