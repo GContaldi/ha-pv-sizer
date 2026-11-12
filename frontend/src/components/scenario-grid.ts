@@ -1,6 +1,6 @@
 import { LitElement, css, html, nothing } from "lit";
 import type { CellSummary, Results } from "../api/types";
-import { formatters } from "../format";
+import { formatters, type Formatters } from "../format";
 import { shared } from "../styles";
 
 export type MetricKey = "saving" | "gain" | "payback" | "self_sufficiency" | "self_consumption";
@@ -30,6 +30,21 @@ function metricValue(c: CellSummary, k: MetricKey): number | null {
       return c.self_sufficiency;
     case "self_consumption":
       return c.self_consumption;
+  }
+}
+
+function cellDetail(f: Formatters, c: CellSummary, k: MetricKey): string {
+  switch (k) {
+    case "saving":
+      return `bolletta ${f.eur(c.bill_eur)}/anno`;
+    case "gain":
+      return `${f.eur(c.saving_eur)}/anno`;
+    case "payback":
+      return `${f.eur(c.saving_eur)}/anno su ${f.eur(c.investment_eur)}`;
+    case "self_sufficiency":
+      return `${f.num(c.consumption_kwh - c.import_kwh, 0)} su ${f.kwh(c.consumption_kwh)}`;
+    case "self_consumption":
+      return `${f.num(c.pv_used_kwh, 0)} su ${f.kwh(c.pv_kwh)}`;
   }
 }
 
@@ -197,7 +212,7 @@ export class PvScenarioGrid extends LitElement {
                 const v = metricValue(c, this.metric);
                 let t = v !== null && max > min ? (v - min) / (max - min) : 0;
                 if (this.metric === "payback" && v !== null) t = 1 - t;
-                const sub = this.metric === "saving" ? `rientro ${f.years(c.payback_years)}` : `${f.eur(c.saving_eur)}/anno`;
+                const sub = cellDetail(f, c, this.metric);
                 return html`<button class="cell ${isSel(k, cap) ? "selected" : ""}" aria-pressed=${isSel(k, cap)} @click=${() => this.select(k, cap)}>
                   ${v !== null ? html`<div class="tint" style="opacity:${0.06 + 0.42 * t}"></div>` : nothing}
                   <div class="content">

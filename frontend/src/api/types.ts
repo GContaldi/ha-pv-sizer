@@ -101,6 +101,10 @@ export interface CellSummary {
   saving_eur: number;
   self_sufficiency: number;
   self_consumption: number;
+  consumption_kwh: number;
+  import_kwh: number;
+  pv_kwh: number;
+  pv_used_kwh: number;
   investment_eur: number;
   /** null = not paid back within the horizon */
   payback_years: number | null;

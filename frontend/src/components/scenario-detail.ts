@@ -235,9 +235,9 @@ export class PvScenarioDetail extends LitElement {
           ? html`
               ${this.stat(f.eur(s.bill_eur), "Bolletta annua", `oggi ${f.eur(todayBill)}`)}
               ${this.stat(f.eur(s.saving_eur), "Risparmio annuo", `−${f.pct(s.saving_eur / todayBill)} sulla bolletta`, s.saving_eur > 0)}
-              ${this.stat(f.pct(s.self_sufficiency), "Autosufficienza", "oggi 0%")}
-              ${this.stat(f.pct(s.self_consumption), "Autoconsumo", "della produzione FV")}
-              ${this.stat(f.years(s.payback_years), "Rientro", `su ${f.eur(s.investment_eur)} di costo`)}
+              ${this.stat(f.pct(s.self_sufficiency), "Autosufficienza", `${f.num(s.consumption_kwh - s.import_kwh, 0)} su ${f.kwh(s.consumption_kwh)}`)}
+              ${this.stat(f.pct(s.self_consumption), "Autoconsumo", `${f.num(s.pv_used_kwh, 0)} su ${f.kwh(s.pv_kwh)}`)}
+              ${this.stat(f.years(s.payback_years), "Rientro", `${f.eur(s.saving_eur)}/anno su ${f.eur(s.investment_eur)}`)}
             `
           : html`
               ${this.stat(f.eur(s.bill_eur), "Bolletta annua", "incluse le quote fisse")}
