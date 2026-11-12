@@ -7,6 +7,9 @@ export interface NumberOptions {
   max?: number;
   integer?: boolean;
   hint?: string;
+  /** Makes the field optional: emptying it calls this instead of restoring the value. */
+  onClear?: () => void;
+  placeholder?: string;
 }
 
 const fieldText = (label: string, hint?: string) =>
@@ -14,14 +17,14 @@ const fieldText = (label: string, hint?: string) =>
 
 export function numberField(
   label: string,
-  value: number,
+  value: number | null,
   suffix: string,
   locale: string,
   onCommit: (v: number) => void,
   opts: NumberOptions = {},
 ): TemplateResult {
   const show = (v: number) => v.toLocaleString(locale, { maximumFractionDigits: 4, useGrouping: false });
-  const text = show(value);
+  const text = value === null ? "" : show(value);
   const range = opts.min !== undefined && opts.max !== undefined ? `da ${show(opts.min)} a ${show(opts.max)}` : "";
   return html`
     <label class="field">
@@ -31,10 +34,15 @@ export function numberField(
           type="text"
           inputmode="decimal"
           title=${range}
+          placeholder=${opts.placeholder ?? ""}
           .value=${live(text)}
           @change=${(e: Event) => {
             const input = e.target as HTMLInputElement;
             let v = parseNumber(input.value);
+            if (v === null && input.value.trim() === "" && opts.onClear) {
+              if (value !== null) opts.onClear();
+              return;
+            }
             if (v === null) {
               input.value = text;
               return;

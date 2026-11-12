@@ -101,6 +101,24 @@ export const shared = css`
   .banner.info {
     background: color-mix(in srgb, var(--info-color, var(--primary-color)) 10%, transparent);
   }
+  button.link {
+    font: inherit;
+    font-weight: 500;
+    color: var(--primary-color);
+    background: none;
+    border: none;
+    border-radius: 8px;
+    min-height: 40px;
+    padding: 0 12px;
+    cursor: pointer;
+  }
+  button.link:hover {
+    background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+  }
+  button.link:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+  }
   .field {
     display: flex;
     align-items: center;

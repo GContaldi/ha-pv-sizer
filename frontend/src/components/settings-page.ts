@@ -1,7 +1,8 @@
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
-import type { Lifetime, PanelConfig, ScenarioSizes, Settings, SystemCosts, Tariff } from "../api/types";
+import type { ConsumptionSettings, Lifetime, PanelConfig, ScenarioSizes, SeasonalProfile, Settings, SystemCosts, Tariff } from "../api/types";
+import { SEASONAL_LABEL, formatDate, joinMonths, statusSentence } from "../consumption";
 import { numberField, selectField } from "../fields";
-import { formatters, parseNumber, type Formatters } from "../format";
+import { MONTHS, formatters, parseNumber, type Formatters } from "../format";
 import { SIZE_LIMITS, normalizeSizes } from "../scenario-sizes";
 import { shared } from "../styles";
 import "./loads-list";
@@ -193,6 +194,68 @@ export class PvSettingsPage extends LitElement {
         padding-left: 18px;
         color: var(--secondary-text-color);
       }
+      ul.notes li + li {
+        margin-top: 4px;
+      }
+      #dati .banner,
+      #carichi .banner {
+        margin: 8px 0;
+      }
+      .strip-wrap {
+        margin: 12px 0 8px;
+      }
+      .strip {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 6px;
+        height: 96px;
+      }
+      .month {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        min-height: 0;
+      }
+      .bar {
+        width: 100%;
+        max-width: 32px;
+        display: flex;
+        flex-direction: column;
+        border-radius: 4px 4px 0 0;
+        overflow: hidden;
+      }
+      .meas,
+      .legend i.meas {
+        background: var(--primary-color);
+      }
+      .est,
+      .legend i.est {
+        background: repeating-linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--primary-color) 55%, transparent) 0 2px,
+          color-mix(in srgb, var(--primary-color) 12%, transparent) 2px 6px
+        );
+      }
+      .bar span {
+        flex-basis: 0;
+      }
+      .legend {
+        display: flex;
+        gap: 16px;
+        margin-top: 8px;
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .legend i {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+      }
     `,
   ];
 
@@ -301,6 +364,88 @@ export class PvSettingsPage extends LitElement {
     </details>`;
   }
 
+  private consumption<K extends keyof ConsumptionSettings>(k: K) {
+    return (v: ConsumptionSettings[K]) =>
+      this.emit({ ...this.config.settings, consumption: { ...this.config.settings.consumption, [k]: v } }, "dati");
+  }
+
+  private renderData(f: Formatters) {
+    const d = this.config.data;
+    const c = this.config.settings.consumption;
+    const loc = this.locale;
+    const measured = d.source === "measured";
+    const meterHint =
+      d.days > 0 && d.from && d.to
+        ? `Storico dal ${formatDate(d.from, loc)} al ${formatDate(d.to, loc)} · ${d.pattern_source === "sensor" ? "orari presi da qui" : "orari tipici finché non ci sono 14 giorni"}`
+        : c.meter_entity_id
+          ? "Ancora nessun dato registrato"
+          : "Va bene il prelievo dalla rete della dashboard Energia";
+    const maxKwh = Math.max(1, ...d.months.map((m) => m.kwh));
+    const monthTitle = (m: { kwh: number; measured_share: number }, i: number) => {
+      const how = m.measured_share >= 0.99 ? "misurati" : m.measured_share > 0 ? `${f.pct(m.measured_share)} misurato, il resto stimato` : "stimati";
+      return `${MONTHS[i]}: ${f.kwh(m.kwh)}, ${how}`;
+    };
+    return html`<div class="card" id="dati">
+      <div class="card-head">
+        <div class="row"><h3>Dati di consumo</h3><span class="spacer"></span>${this.savedBadge("dati")}</div>
+        <span class="muted" role="status">${statusSentence(d, c.annual_kwh !== null, f)}</span>
+      </div>
+      ${selectField(
+        "Misuratore di tutta la casa",
+        c.meter_entity_id ?? "",
+        [{ value: "", label: "Nessuno" }, ...this.config.meter_options.map((o) => ({ value: o.entity_id, label: o.name }))],
+        (v) => this.consumption("meter_entity_id")(v || null),
+        meterHint,
+        true,
+      )}
+      ${numberField(measured ? "Consumo annuo, per confronto" : "Consumo annuo", c.annual_kwh, "kWh/anno", loc, this.consumption("annual_kwh"), {
+        min: 100,
+        max: 100000,
+        integer: true,
+        placeholder: "Dalla bolletta",
+        onClear: () => this.consumption("annual_kwh")(null),
+        hint: measured
+          ? "Con 12 mesi misurati il calcolo usa lo storico"
+          : d.source === "mixed"
+            ? "Se lo lasci vuoto, proietto i giorni misurati sull'anno"
+            : "La somma dei 12 mesi in bolletta",
+      })}
+      ${selectField(
+        "Andamento nell'anno",
+        c.seasonal_profile,
+        (Object.keys(SEASONAL_LABEL) as SeasonalProfile[]).map((k) => ({ value: k, label: SEASONAL_LABEL[k] })),
+        (v) => this.consumption("seasonal_profile")(v as SeasonalProfile),
+        measured ? "Non serve: tutti i mesi sono misurati" : "Come si distribuisce il consumo nei mesi non misurati",
+        true,
+      )}
+      ${d.warning === "measured_exceeds_annual"
+        ? html`<div class="banner small" role="status">
+            I giorni misurati superano già il consumo annuo inserito. Controlla il valore, oppure svuota il campo per proiettare lo storico.
+          </div>`
+        : nothing}
+      ${d.source === "missing"
+        ? nothing
+        : html`<div class="strip-wrap">
+            <div class="strip" role="img" aria-label=${d.months.map(monthTitle).join("; ")}>
+              ${d.months.map(
+                (m, i) => html`<div class="month" title=${monthTitle(m, i)}>
+                  <div class="bar" style="height:${Math.max(4, (m.kwh / maxKwh) * 100)}%">
+                    <span class="est" style="flex-grow:${1 - m.measured_share}"></span>
+                    <span class="meas" style="flex-grow:${m.measured_share}"></span>
+                  </div>
+                  <span class="small muted">${MONTHS[i][0]}</span>
+                </div>`,
+              )}
+            </div>
+            <div class="legend small muted">
+              <span><i class="meas"></i>Misurato</span>
+              <span><i class="est"></i>Stimato</span>
+            </div>
+          </div>`}
+      <span class="small muted">Produzione stimata per ${this.config.location.name}.</span>
+    </div>`;
+  }
+
   render() {
     if (!this.config) return nothing;
     const f = formatters(this.locale);
@@ -310,23 +455,22 @@ export class PvSettingsPage extends LitElement {
     const derived = this.config.derived;
 
     return html`
-      <div class="card" id="dati">
-        <div class="card-head">
-          <h3>Dati di consumo</h3>
-          ${d.source === "demo"
-            ? html`<span class="muted">Anno tipo simulato: ${f.kwh(d.annual_kwh)}. Nell'integrazione vera qui c'è il contatore della dashboard Energia.</span>`
-            : html`<span class="muted">
-                ${d.consumption_entity_id} · dal ${d.from} al ${d.to} · ${f.kwh(d.annual_kwh)} l'anno${d.days < 365 ? " (mesi mancanti stimati)" : ""}
-              </span>`}
-          <span class="small muted">Produzione stimata per ${this.config.location.name}.</span>
-        </div>
-      </div>
+      ${this.renderData(f)}
 
       <div class="card" id="carichi" @loads-change=${() => this.markSaved("carichi")}>
         <div class="card-head">
           <div class="row"><h3>Carichi spostabili</h3><span class="spacer"></span>${this.savedBadge("carichi")}</div>
-          <span class="small muted">Gli elettrodomestici che potresti far partire in un altro orario. Quanto vale spostarli lo trovi in Scenari.</span>
+          <span class="small muted">
+            Gli elettrodomestici che potresti far partire in un altro orario, e quelli che consumano ogni giorno come pompa di calore e clima.
+            Quanto vale spostarli lo trovi in Scenari.
+          </span>
         </div>
+        ${d.loads_exceed_months.length
+          ? html`<div class="banner small" role="status">
+              I carichi superano il consumo di ${joinMonths(d.loads_exceed_months)}: il calcolo li riduce a quanto consuma la casa in quei mesi.
+              Controlla i kWh al giorno dei carichi continui o il consumo annuo.
+            </div>`
+          : nothing}
         <pv-loads-list .config=${this.config} .locale=${this.locale}></pv-loads-list>
       </div>
 
@@ -401,6 +545,14 @@ export class PvSettingsPage extends LitElement {
         "Ipotesi e limiti del modello",
         html`<ul class="notes">
           <li>Simula ogni ora di un anno tipo: consumi, produzione FV, batteria, rete.</li>
+          <li>
+            I consumi vengono dal misuratore per i giorni registrati; il resto dell'anno è stimato dal consumo annuo con l'andamento scelto. Con
+            un anno intero di storico conta solo lo storico. Gli orari della giornata vengono dal misuratore quando ha almeno 14 giorni.
+          </li>
+          <li>
+            I carichi continui (pompa di calore, clima, VMC) consumano ogni giorno dei loro mesi e fanno parte del totale della casa. Se sono
+            anticipabili, una parte del consumo si sposta fino a qualche ora prima, nelle ore di sole (preriscaldo o preraffresco).
+          </li>
           <li>La batteria si carica solo dal FV, mai dalla rete.</li>
           <li>Lo spostamento mette i carichi nelle ore di sole della stessa giornata, senza considerare la batteria.</li>
           <li>Niente incentivi delle comunità energetiche (CER).</li>

@@ -272,12 +272,19 @@ export class PvSizerPanel extends LitElement {
 
   private async refresh(config?: PanelConfig) {
     const hass = this.hass!;
-    await this.run(async () => {
-      const [cfg, results] = await Promise.all([config ? Promise.resolve(config) : fetchConfig(hass), fetchResults(hass)]);
+    const ready = await this.run(async () => {
+      const cfg = config ?? (await fetchConfig(hass));
       this.config = cfg;
-      this.results = results;
+      // Without consumption data there is nothing to simulate.
+      if (cfg.data.source === "missing") {
+        this.results = undefined;
+        this.detail = undefined;
+        return false;
+      }
+      this.results = await fetchResults(hass);
+      return true;
     });
-    await this.loadDetail();
+    if (ready) await this.loadDetail();
   }
 
   private async loadDetail() {
@@ -325,6 +332,13 @@ export class PvSizerPanel extends LitElement {
   }
 
   private renderScenari() {
+    if (this.config?.data.source === "missing") {
+      return html`<div class="banner stack" role="status">
+        <span class="strong">Mancano i dati di consumo</span>
+        <span>Per confrontare gli scenari serve sapere quanto consuma la casa: scegli il misuratore o scrivi il consumo annuo della bolletta.</span>
+        <span><button class="link" style="margin-left:-12px" @click=${() => this.go("impostazioni/dati")}>Imposta i consumi</button></span>
+      </div>`;
+    }
     if (!this.results || !this.config) return nothing;
     return html`
       <div class="stack" id="grid" style="gap:12px">
@@ -346,7 +360,9 @@ export class PvSizerPanel extends LitElement {
           .selected=${this.selected}
           .locale=${this.locale}
           .horizonYears=${this.config.horizon_years}
+          .data=${this.config.data}
           @scenario-select=${this.onSelect}
+          @navigate=${(e: CustomEvent<string>) => this.go(e.detail)}
         ></pv-scenario-grid>
       </div>
       ${this.detail
@@ -390,7 +406,7 @@ export class PvSizerPanel extends LitElement {
       </div>
       <main>
         ${this.error ? html`<div class="banner"><span class="strong">Errore:</span> ${this.error}</div>` : nothing}
-        ${c?.data.source === "demo"
+        ${c?.demo
           ? html`<div class="banner demo small">
               <span class="strong">Dati demo</span>
               <span class="muted">· consumi e produzione simulati, solo per provare l'interfaccia</span>

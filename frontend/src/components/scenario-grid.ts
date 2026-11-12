@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing } from "lit";
-import type { CellSummary, Results } from "../api/types";
+import type { CellSummary, DataInfo, Results } from "../api/types";
+import { sourceLine } from "../consumption";
 import { formatters, type Formatters } from "../format";
 import { shared } from "../styles";
 
@@ -66,8 +67,10 @@ export class PvScenarioGrid extends LitElement {
     selected: { attribute: false },
     locale: { type: String },
     horizonYears: { type: Number },
+    data: { attribute: false },
   };
   declare horizonYears: number;
+  declare data?: DataInfo;
   declare results: Results;
   declare pvSizes: number[];
   declare batterySizes: number[];
@@ -105,6 +108,16 @@ export class PvScenarioGrid extends LitElement {
       }
       .today .why {
         flex-basis: 100%;
+      }
+      .source {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0 4px;
+        margin: -6px 0 0 14px;
+      }
+      .source button.link {
+        font-size: 12px;
       }
       .scroller {
         overflow-x: auto;
@@ -237,6 +250,17 @@ export class PvScenarioGrid extends LitElement {
         <span class="figs muted">Bolletta <span class="strong">${f.eur(base.bill_eur)}/anno</span> · consumo <span class="strong">${f.kwh(base.annual_kwh)}</span></span>
         <span class="why small muted">È il punto di partenza. Senza FV la batteria non serve: con la tariffa monoraria caricarla dalla rete non fa risparmiare.</span>
       </button>
+      ${this.data && sourceLine(this.data, f)
+        ? html`<div class="source small muted">
+            <span>${sourceLine(this.data, f)}</span>
+            <button
+              class="link"
+              @click=${() => this.dispatchEvent(new CustomEvent("navigate", { detail: "impostazioni/dati", bubbles: true, composed: true }))}
+            >
+              Modifica
+            </button>
+          </div>`
+        : nothing}
 
       <div class="scroller">
         <div class="grid" style="grid-template-columns: 72px repeat(${this.batterySizes.length}, minmax(120px, 1fr))">
