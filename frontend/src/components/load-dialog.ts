@@ -115,6 +115,11 @@ export class PvLoadDialog extends LitElement {
       footer button:hover {
         background: color-mix(in srgb, currentColor 8%, transparent);
       }
+      footer button:focus-visible,
+      button.icon:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+      }
       footer button.primary {
         background: var(--primary-color);
         color: var(--text-primary-color, #fff);

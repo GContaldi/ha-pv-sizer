@@ -13,16 +13,28 @@ export class PvSettingsPage extends LitElement {
     config: { attribute: false },
     locale: { type: String },
     section: { type: String },
+    busy: { type: Boolean },
     addingSize: { state: true },
+    savedIn: { state: true },
   };
   declare config: PanelConfig;
   declare locale: string;
   declare section?: string;
+  declare busy: boolean;
   declare addingSize: SizeKind | null;
+  /** Section whose last edit is being saved, for the "Salvato" status. */
+  declare savedIn?: string;
+  private savedTimer?: number;
 
   constructor() {
     super();
+    this.busy = false;
     this.addingSize = null;
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearTimeout(this.savedTimer);
   }
 
   static styles = [
@@ -66,17 +78,28 @@ export class PvSettingsPage extends LitElement {
       }
       details.card > summary::after {
         content: "";
-        width: 8px;
-        height: 8px;
+        width: 24px;
+        height: 24px;
         flex: none;
-        margin-right: 4px;
-        border-right: 2px solid var(--secondary-text-color);
-        border-bottom: 2px solid var(--secondary-text-color);
-        transform: rotate(45deg);
+        background: var(--secondary-text-color);
+        -webkit-mask: var(--chevron) center / 24px no-repeat;
+        mask: var(--chevron) center / 24px no-repeat;
         transition: transform 0.15s;
       }
       details.card[open] > summary::after {
-        transform: rotate(-135deg);
+        transform: rotate(180deg);
+      }
+      :host {
+        --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6z'/%3E%3C/svg%3E");
+      }
+      .card-head .row {
+        flex-wrap: nowrap;
+      }
+      .saved {
+        flex: none;
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        white-space: nowrap;
       }
       details.card > summary:focus-visible {
         outline: 2px solid var(--primary-color);
@@ -113,7 +136,7 @@ export class PvSettingsPage extends LitElement {
         display: inline-flex;
         align-items: center;
         gap: 2px;
-        height: 36px;
+        height: 40px;
         padding: 0 4px 0 14px;
         border-radius: 999px;
         border: 1px solid var(--divider-color);
@@ -127,7 +150,9 @@ export class PvSettingsPage extends LitElement {
         color: var(--secondary-text-color);
       }
       .chip button {
+        position: relative;
         font: inherit;
+        font-size: 18px;
         width: 32px;
         height: 32px;
         border: none;
@@ -136,8 +161,18 @@ export class PvSettingsPage extends LitElement {
         color: var(--secondary-text-color);
         cursor: pointer;
       }
+      .chip button::after {
+        content: "";
+        position: absolute;
+        inset: -6px;
+      }
       .chip button:hover {
         background: var(--divider-color);
+      }
+      .chip button:focus-visible,
+      button.chip.add:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 1px;
       }
       button.chip.add {
         padding: 0 14px;
@@ -149,7 +184,7 @@ export class PvSettingsPage extends LitElement {
       }
       .chips input {
         width: 96px;
-        height: 36px;
+        height: 40px;
         border-radius: 999px;
         text-align: center;
       }
@@ -157,12 +192,15 @@ export class PvSettingsPage extends LitElement {
         margin: 0;
         padding-left: 18px;
         color: var(--secondary-text-color);
-        font-size: 13px;
       }
     `,
   ];
 
   protected updated(changed: PropertyValues<this>) {
+    if (changed.has("busy") && !this.busy && this.savedIn) {
+      clearTimeout(this.savedTimer);
+      this.savedTimer = window.setTimeout(() => (this.savedIn = undefined), 2500);
+    }
     if (!changed.has("section") || !this.section) return;
     const target = this.renderRoot.querySelector<HTMLElement>(`#${this.section}`);
     if (!target) return;
@@ -170,24 +208,35 @@ export class PvSettingsPage extends LitElement {
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  private emit(settings: Settings) {
+  private markSaved(section: string) {
+    clearTimeout(this.savedTimer);
+    this.savedIn = section;
+  }
+
+  private savedBadge(section: string) {
+    if (this.savedIn !== section) return nothing;
+    return html`<span class="saved" role="status">${this.busy ? "Salvato · ricalcolo…" : "Salvato"}</span>`;
+  }
+
+  private emit(settings: Settings, section: string) {
+    this.markSaved(section);
     this.dispatchEvent(new CustomEvent<Settings>("settings-change", { detail: settings, bubbles: true, composed: true }));
   }
 
   private tariff<K extends keyof Tariff>(k: K) {
-    return (v: number) => this.emit({ ...this.config.settings, tariff: { ...this.config.settings.tariff, [k]: v } });
+    return (v: number) => this.emit({ ...this.config.settings, tariff: { ...this.config.settings.tariff, [k]: v } }, "bolletta");
   }
 
   private system<K extends keyof SystemCosts>(k: K) {
-    return (v: number) => this.emit({ ...this.config.settings, system: { ...this.config.settings.system, [k]: v } });
+    return (v: number) => this.emit({ ...this.config.settings, system: { ...this.config.settings.system, [k]: v } }, "impianto");
   }
 
   private lifetime<K extends keyof Lifetime>(k: K) {
-    return (v: number) => this.emit({ ...this.config.settings, lifetime: { ...this.config.settings.lifetime, [k]: v } });
+    return (v: number) => this.emit({ ...this.config.settings, lifetime: { ...this.config.settings.lifetime, [k]: v } }, "tempo");
   }
 
   private setSizes(next: ScenarioSizes) {
-    this.emit({ ...this.config.settings, scenarios: normalizeSizes(next, this.config.settings.scenarios) });
+    this.emit({ ...this.config.settings, scenarios: normalizeSizes(next, this.config.settings.scenarios) }, "taglie");
   }
 
   private sizeEditor(f: Formatters, kind: SizeKind) {
@@ -246,6 +295,7 @@ export class PvSettingsPage extends LitElement {
     return html`<details class="card" id=${id}>
       <summary>
         <span class="summary-text"><span class="strong">${title}</span><span class="small muted">${summary}</span></span>
+        ${this.savedBadge(id)}
       </summary>
       <div class="details-body">${body}</div>
     </details>`;
@@ -272,9 +322,9 @@ export class PvSettingsPage extends LitElement {
         </div>
       </div>
 
-      <div class="card" id="carichi">
+      <div class="card" id="carichi" @loads-change=${() => this.markSaved("carichi")}>
         <div class="card-head">
-          <h3>Carichi spostabili</h3>
+          <div class="row"><h3>Carichi spostabili</h3><span class="spacer"></span>${this.savedBadge("carichi")}</div>
           <span class="small muted">Gli elettrodomestici che potresti far partire in un altro orario. Quanto vale spostarli lo trovi in Scenari.</span>
         </div>
         <pv-loads-list .config=${this.config} .locale=${this.locale}></pv-loads-list>
@@ -282,7 +332,7 @@ export class PvSettingsPage extends LitElement {
 
       <div class="card" id="taglie">
         <div class="card-head">
-          <h3>Taglie da confrontare</h3>
+          <div class="row"><h3>Taglie da confrontare</h3><span class="spacer"></span>${this.savedBadge("taglie")}</div>
           <span class="small muted">Sono le righe e le colonne della tabella in Scenari. Ogni taglia in più allunga un po' il calcolo.</span>
         </div>
         <div class="sizes">${this.sizeEditor(f, "pv")} ${this.sizeEditor(f, "battery")}</div>

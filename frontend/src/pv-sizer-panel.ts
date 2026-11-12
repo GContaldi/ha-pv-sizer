@@ -95,6 +95,7 @@ export class PvSizerPanel extends LitElement {
         background: var(--primary-background-color);
       }
       .toolbar {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 4px;
@@ -137,9 +138,42 @@ export class PvSizerPanel extends LitElement {
         outline-offset: -6px;
         border-radius: 8px;
       }
-      .busy {
-        font-size: 12px;
-        opacity: 0.7;
+      .progress {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 3px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+      }
+      .progress[hidden] {
+        display: none;
+      }
+      .progress::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 30%;
+        background: var(--primary-color);
+        animation: slide 1.1s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .progress::after {
+          animation: none;
+          left: 0;
+          width: 100%;
+          opacity: 0.6;
+        }
+      }
+      @keyframes slide {
+        from {
+          left: -30%;
+        }
+        to {
+          left: 100%;
+        }
       }
       main {
         container-type: inline-size;
@@ -352,7 +386,7 @@ export class PvSizerPanel extends LitElement {
           )}
         </nav>
         <span class="spacer"></span>
-        ${this.busy ? html`<span class="busy">Calcolo…</span>` : nothing}
+        <div class="progress" role="progressbar" aria-label="Ricalcolo in corso" ?hidden=${!this.busy}></div>
       </div>
       <main>
         ${this.error ? html`<div class="banner"><span class="strong">Errore:</span> ${this.error}</div>` : nothing}
@@ -368,6 +402,7 @@ export class PvSizerPanel extends LitElement {
               .config=${c}
               .locale=${this.locale}
               .section=${this.section}
+              .busy=${this.busy}
               @settings-change=${this.onSettings}
               @loads-change=${this.onLoads}
             ></pv-settings-page>`

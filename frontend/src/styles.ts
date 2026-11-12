@@ -38,15 +38,6 @@ export const shared = css`
     border-radius: var(--ha-card-border-radius, 12px);
     padding: 16px;
   }
-  .card-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--secondary-text-color);
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
   .row {
     display: flex;
     gap: 8px;
@@ -61,49 +52,16 @@ export const shared = css`
     flex-direction: column;
     gap: 8px;
   }
-  .pill {
-    font: inherit;
-    font-size: 13px;
-    color: var(--primary-text-color);
-    background: transparent;
-    border: 1px solid var(--divider-color);
-    border-radius: 999px;
-    padding: 4px 12px;
-    cursor: pointer;
-  }
-  .pill.active {
-    background: var(--primary-color);
-    border-color: var(--primary-color);
-    color: var(--text-primary-color, #fff);
-  }
-  .pill.sm {
-    font-size: 12px;
-    padding: 2px 10px;
-  }
-  button.btn {
-    font: inherit;
-    font-size: 13px;
-    color: var(--primary-color);
-    background: transparent;
-    border: 1px solid var(--divider-color);
-    border-radius: 8px;
-    padding: 4px 12px;
-    cursor: pointer;
-  }
-  button.btn.ghost {
-    border-color: transparent;
-    color: var(--secondary-text-color);
-  }
   input[type="text"],
   select {
     background: var(--secondary-background-color);
     color: var(--primary-text-color);
     border: 1px solid var(--divider-color);
-    border-radius: 6px;
-    height: 30px;
-    padding: 0 8px;
+    border-radius: 8px;
+    height: 40px;
+    padding: 0 10px;
     font: inherit;
-    font-size: 13px;
+    font-size: 14px;
     box-sizing: border-box;
   }
   input[type="text"]:focus,
@@ -228,5 +186,9 @@ export const shared = css`
   }
   .switch input:checked + span::after {
     transform: translateX(14px);
+  }
+  .switch input:focus-visible + span {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 3px;
   }
 `;

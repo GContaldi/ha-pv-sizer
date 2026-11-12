@@ -125,11 +125,18 @@ export class PvScenarioDetail extends LitElement {
       }
       details.defs summary {
         cursor: pointer;
+        width: fit-content;
+        padding: 12px 0;
         color: var(--primary-color);
-        font-size: 13px;
+        font-weight: 500;
+      }
+      details.defs summary:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+        border-radius: 4px;
       }
       details.defs[open] summary {
-        margin-bottom: 12px;
+        margin-bottom: 4px;
       }
       .definition {
         display: flex;
