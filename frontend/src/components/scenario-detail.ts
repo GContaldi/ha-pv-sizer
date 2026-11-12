@@ -50,6 +50,56 @@ export class PvScenarioDetail extends LitElement {
         gap: 24px;
         align-items: start;
       }
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .tag {
+        font-size: 12px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+        color: var(--primary-color);
+      }
+      .balance {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .bar {
+        display: flex;
+        gap: 2px;
+        height: 14px;
+        border-radius: 7px;
+        overflow: hidden;
+      }
+      .bar span {
+        flex-basis: 0;
+        min-width: 3px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 16px;
+        font-variant-numeric: tabular-nums;
+      }
+      .legend i {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 6px;
+      }
+      details.defs summary {
+        cursor: pointer;
+        color: var(--primary-color);
+        font-size: 13px;
+      }
+      details.defs[open] summary {
+        margin-bottom: 12px;
+      }
       .definition {
         display: flex;
         flex-direction: column;
@@ -72,10 +122,25 @@ export class PvScenarioDetail extends LitElement {
     `,
   ];
 
-  private stat(value: string, label: string, good = false) {
+  private stat(value: string, label: string, sub: string, good = false) {
     return html`<div>
       <div class="stat-value ${good ? "good" : ""}">${value}</div>
-      <div class="small muted">${label}</div>
+      <div class="small">${label}</div>
+      <div class="small muted">${sub}</div>
+    </div>`;
+  }
+
+  private balance(f: Formatters, title: string, segments: { label: string; kwh: number; color: string }[]) {
+    const shown = segments.filter((s) => s.kwh >= 0.5);
+    const total = shown.reduce((a, s) => a + s.kwh, 0);
+    return html`<div class="balance">
+      <div class="row"><span class="strong">${title}</span><span class="spacer"></span><span class="muted">${f.kwh(total)} l'anno</span></div>
+      <div class="bar">${shown.map((s) => html`<span style="flex-grow:${s.kwh};background:${s.color}"></span>`)}</div>
+      <div class="legend small">
+        ${shown.map(
+          (s) => html`<span><i style="background:${s.color}"></i>${s.label} <span class="strong">${f.kwh(s.kwh)}</span> <span class="muted">${f.pct(total ? s.kwh / total : 0)}</span></span>`,
+        )}
+      </div>
     </div>`;
   }
 
@@ -156,30 +221,64 @@ export class PvScenarioDetail extends LitElement {
       ],
     };
 
-    return html`
-      <h2>${scenarioName(f, s.pv_kwp, s.battery_kwh)}${s.shift && hasPv ? " · con spostamento carichi" : ""}</h2>
+    const todayBill = s.bill_eur + s.saving_eur;
+    const sum = (xs: number[]) => xs.reduce((a, v) => a + v, 0);
 
-      <div class="stats">
-        ${this.stat(f.eur(s.bill_eur), "Bolletta annua")}
-        ${this.stat(f.eur(s.saving_eur), "Risparmio annuo", s.saving_eur > 0)}
-        ${this.stat(f.pct(s.self_sufficiency), "Autosufficienza")}
-        ${this.stat(hasPv ? f.pct(s.self_consumption) : "–", "Autoconsumo")}
-        ${this.stat(hasPv ? f.years(s.payback_years) : "–", "Rientro")}
+    return html`
+      <div class="title">
+        <h2>${scenarioName(f, s.pv_kwp, s.battery_kwh)}</h2>
+        ${s.shift && hasPv ? html`<span class="tag">con spostamento carichi</span>` : nothing}
       </div>
 
-      <div class="two">
-        <div class="definition">
-          <span class="strong">Autosufficienza</span>
-          <span class="muted">Quanta parte dei consumi di casa copri da solo, con il FV e la batteria, senza prendere dalla rete.</span>
-          <span class="small muted">(consumi − prelievo dalla rete) ÷ consumi</span>
-          <span class="small">Qui: ${f.kwh(e.consumption_kwh - e.import_kwh)} su ${f.kwh(e.consumption_kwh)} = ${f.pct(s.self_sufficiency)}</span>
+      <div class="stats">
+        ${hasPv
+          ? html`
+              ${this.stat(f.eur(s.bill_eur), "Bolletta annua", `oggi ${f.eur(todayBill)}`)}
+              ${this.stat(f.eur(s.saving_eur), "Risparmio annuo", `−${f.pct(s.saving_eur / todayBill)} sulla bolletta`, s.saving_eur > 0)}
+              ${this.stat(f.pct(s.self_sufficiency), "Autosufficienza", "oggi 0%")}
+              ${this.stat(f.pct(s.self_consumption), "Autoconsumo", "della produzione FV")}
+              ${this.stat(f.years(s.payback_years), "Rientro", `su ${f.eur(s.investment_eur)} di costo`)}
+            `
+          : html`
+              ${this.stat(f.eur(s.bill_eur), "Bolletta annua", "incluse le quote fisse")}
+              ${this.stat(f.kwh(e.consumption_kwh), "Consumo annuo", "tutto dalla rete")}
+              ${this.stat(f.eur2(s.bill_eur / e.consumption_kwh), "Costo medio per kWh", "quote fisse comprese")}
+            `}
+      </div>
+
+      <div class="stack" style="gap:16px">
+        <h3>Bilancio annuo</h3>
+        <div class="two">
+          ${this.balance(f, "Consumo di casa", [
+            { label: "FV diretto", kwh: sum(m.direct), color: c.solar },
+            { label: "Dalla batteria", kwh: sum(m.battery), color: c.batteryOut },
+            { label: "Dalla rete", kwh: e.import_kwh, color: c.grid },
+          ])}
+          ${hasPv
+            ? this.balance(f, "Produzione FV", [
+                { label: "Usata in casa o in batteria", kwh: e.pv_used_kwh, color: c.solar },
+                { label: "Immessa in rete", kwh: e.export_kwh, color: c.gridReturn },
+                { label: "Persa (limite immissione)", kwh: e.curtailed_kwh, color: c.error },
+              ])
+            : nothing}
         </div>
-        <div class="definition">
-          <span class="strong">Autoconsumo</span>
-          <span class="muted">Quanta parte della produzione FV usi in casa, subito o passando dalla batteria, invece di cederla alla rete.</span>
-          <span class="small muted">(produzione − immessa − persa) ÷ produzione</span>
-          <span class="small">${hasPv ? `Qui: ${f.kwh(e.pv_used_kwh)} su ${f.kwh(e.pv_kwh)} = ${f.pct(s.self_consumption)}` : "Senza FV non c'è produzione."}</span>
-        </div>
+        <details class="defs" ?hidden=${!hasPv}>
+          <summary>Come si calcolano autosufficienza e autoconsumo</summary>
+          <div class="two">
+            <div class="definition">
+              <span class="strong">Autosufficienza</span>
+              <span class="muted">Quanta parte dei consumi di casa copri da solo, con il FV e la batteria, senza prendere dalla rete.</span>
+              <span class="small muted">(consumi − prelievo dalla rete) ÷ consumi</span>
+              <span class="small">Qui: ${f.kwh(e.consumption_kwh - e.import_kwh)} su ${f.kwh(e.consumption_kwh)} = ${f.pct(s.self_sufficiency)}</span>
+            </div>
+            <div class="definition">
+              <span class="strong">Autoconsumo</span>
+              <span class="muted">Quanta parte della produzione FV usi in casa, subito o passando dalla batteria, invece di cederla alla rete.</span>
+              <span class="small muted">(produzione − immessa − persa) ÷ produzione</span>
+              <span class="small">${hasPv ? `Qui: ${f.kwh(e.pv_used_kwh)} su ${f.kwh(e.pv_kwh)} = ${f.pct(s.self_consumption)}` : "Senza FV non c'è produzione."}</span>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="two">
