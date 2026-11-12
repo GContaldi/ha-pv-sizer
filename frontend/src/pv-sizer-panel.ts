@@ -106,12 +106,16 @@ export class PvSizerPanel extends LitElement {
         opacity: 0.7;
       }
       main {
+        container-type: inline-size;
         max-width: 1200px;
         margin: 0 auto;
         padding: 20px 16px 48px;
         display: flex;
         flex-direction: column;
         gap: 24px;
+      }
+      .demo {
+        padding: 6px 12px;
       }
       :host([narrow]) .tabs {
         margin-left: 8px;
@@ -238,9 +242,9 @@ export class PvSizerPanel extends LitElement {
       <main>
         ${this.error ? html`<div class="banner"><span class="strong">Errore:</span> ${this.error}</div>` : nothing}
         ${c?.data.source === "demo"
-          ? html`<div class="banner">
-              <span class="strong">Dati demo.</span>
-              <span class="muted">Consumi simulati a partire da circa 400 kWh di ottobre; produzione stimata, non ancora da PVGIS. Servono a provare l'interfaccia.</span>
+          ? html`<div class="banner demo small">
+              <span class="strong">Dati demo</span>
+              <span class="muted">· consumi e produzione simulati, solo per provare l'interfaccia</span>
             </div>`
           : nothing}
         ${this.tab === "scenari" ? this.renderScenari() : nothing}

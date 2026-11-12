@@ -23,7 +23,12 @@ export class PvSettingsForm extends LitElement {
         gap: 16px;
         align-items: start;
       }
-      @media (max-width: 1000px) {
+      @container (max-width: 1000px) {
+        .cards {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @container (max-width: 600px) {
         .cards {
           grid-template-columns: minmax(0, 1fr);
         }

@@ -84,7 +84,7 @@ export class PvLoadsEditor extends LitElement {
       .window select {
         width: 84px;
       }
-      @media (max-width: 800px) {
+      @container (max-width: 800px) {
         .loads {
           grid-template-columns: minmax(0, 1fr);
         }

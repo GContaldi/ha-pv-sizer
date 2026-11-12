@@ -55,13 +55,18 @@ export class PvScenarioDetail extends LitElement {
         flex-direction: column;
         gap: 4px;
       }
-      @media (max-width: 800px) {
+      @container (max-width: 800px) {
         .stats {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
         .two,
         .costs {
           grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @container (max-width: 600px) {
+        .stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
     `,
