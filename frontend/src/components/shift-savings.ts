@@ -59,25 +59,18 @@ export class PvShiftSavings extends LitElement {
         color: var(--success-color);
         font-variant-numeric: tabular-nums;
       }
+      th[rowspan] {
+        vertical-align: bottom;
+      }
+      th.group {
+        text-align: center;
+        padding-bottom: 4px;
+      }
       .two {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 24px;
         align-items: start;
-      }
-      button.link {
-        font: inherit;
-        font-weight: 500;
-        color: var(--primary-color);
-        background: none;
-        border: none;
-        border-radius: 8px;
-        min-height: 40px;
-        padding: 0 12px;
-        cursor: pointer;
-      }
-      button.link:hover {
-        background: color-mix(in srgb, var(--primary-color) 8%, transparent);
       }
       @container (max-width: 800px) {
         .two {
@@ -122,14 +115,18 @@ export class PvShiftSavings extends LitElement {
 
     const values = new Map(this.detail.loads.map((v) => [v.load_id, v]));
     const tableSum = shiftable.reduce((a, l) => a + (values.get(l.id)?.saving_eur ?? 0), 0);
+    const mixed = shiftable.some((l) => l.kind === "continuous");
     const effect = this.detail.shift_effect_eur;
+    const base = baseOption(c, {
+      categories: this.results.load_savings_by_pv.map((r) => `${f.kwp(r.pv_kwp)} kWp`),
+      xName: "Potenza FV (senza batteria)",
+      valueFormatter: (v) => f.eur(v),
+      axisFormatter: (v) => f.eur(v),
+    });
     const byPv: ChartOption = {
-      ...baseOption(c, {
-        categories: this.results.load_savings_by_pv.map((r) => `${f.kwp(r.pv_kwp)} kWp`),
-        xName: "Potenza FV (senza batteria)",
-        valueFormatter: (v) => f.eur(v),
-        axisFormatter: (v) => f.eur(v),
-      }),
+      ...base,
+      // The legend wraps to a second line past four loads.
+      grid: { ...(base.grid as object), top: shiftable.length > 4 ? 60 : 36 },
       series: shiftable.map((l) => ({
         name: l.name,
         type: "bar",
@@ -157,11 +154,14 @@ export class PvShiftSavings extends LitElement {
           <table>
             <thead>
               <tr>
-                <th>Carico</th>
-                <th class="num">Cicli/anno</th>
-                <th class="num">Costo ciclo, orari di oggi</th>
-                <th class="num">Costo ciclo spostato</th>
-                <th class="num">Risparmio/anno</th>
+                <th rowspan="2">Carico</th>
+                <th rowspan="2" class="num">${mixed ? "Cicli o giorni/anno" : "Cicli/anno"}</th>
+                <th colspan="2" class="num group">${mixed ? "Costo per ciclo o giorno" : "Costo per ciclo"}</th>
+                <th rowspan="2" class="num">Risparmio/anno</th>
+              </tr>
+              <tr>
+                <th class="num">orari di oggi</th>
+                <th class="num">spostato</th>
               </tr>
             </thead>
             <tbody>
@@ -170,7 +170,7 @@ export class PvShiftSavings extends LitElement {
                 if (!v) return nothing;
                 return html`<tr>
                   <td>${l.name}</td>
-                  <td class="num">${v.cycles_per_year}</td>
+                  <td class="num">${v.cycles_per_year}${mixed ? (v.kind === "continuous" ? " giorni" : " cicli") : ""}</td>
                   <td class="num">${f.eur2(v.cost_per_cycle_pv)}</td>
                   <td class="num">${f.eur2(v.cost_per_cycle_shifted)}</td>
                   <td class="num">${f.eur(v.saving_eur)}</td>

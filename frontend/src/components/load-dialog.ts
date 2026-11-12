@@ -1,13 +1,14 @@
 import { LitElement, css, html, nothing } from "lit";
 import { live } from "lit/directives/live.js";
-import type { LoadDef, PanelConfig, UsualTime } from "../api/types";
+import type { ContinuousLoad, CycleLoad, HourProfile, LoadDef, PanelConfig, UsualTime } from "../api/types";
 import { hourOptions, numberField, selectField, switchField } from "../fields";
-import { formatters, type Formatters } from "../format";
-import { LOAD_LIMITS, LOAD_PRESETS, type LoadPreset } from "../load-presets";
-import { USUAL_TIME_LABEL, createsLoop, effectiveUsage, usualPhrase } from "../loads";
+import { MONTHS, formatters, type Formatters } from "../format";
+import { LOAD_LIMITS, LOAD_PRESETS, OTHER_CONTINUOUS, OTHER_CYCLE, type LoadPreset } from "../load-presets";
+import { HOUR_PROFILE_LABEL, USUAL_TIME_LABEL, continuousUsage, createsLoop, effectiveUsage, monthsLabel, usualPhrase } from "../loads";
 import { shared } from "../styles";
 
 const NEW_ID = "__new__";
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 export class PvLoadDialog extends LitElement {
   static properties = {
@@ -15,12 +16,15 @@ export class PvLoadDialog extends LitElement {
     locale: { type: String },
     step: { state: true },
     draft: { state: true },
+    preset: { state: true },
     confirmDelete: { state: true },
   };
   declare config: PanelConfig;
   declare locale: string;
   declare step: "preset" | "form";
   declare draft?: LoadDef;
+  /** Preset the new load started from. */
+  declare preset?: LoadPreset;
   declare confirmDelete: boolean;
 
   constructor() {
@@ -240,6 +244,40 @@ export class PvLoadDialog extends LitElement {
         font-size: 12px;
         color: var(--secondary-text-color);
       }
+      .hist-axis.months span {
+        flex: 1;
+        text-align: center;
+      }
+      .months-field {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .month-chips {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .month-chip {
+        font: inherit;
+        font-size: 14px;
+        height: 44px;
+        border-radius: 22px;
+        border: 1px solid var(--divider-color);
+        background: none;
+        color: var(--primary-text-color);
+        cursor: pointer;
+      }
+      .month-chip[aria-pressed="true"] {
+        border-color: var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+        color: var(--primary-color);
+        font-weight: 500;
+      }
+      .month-chip:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 1px;
+      }
       .error {
         color: var(--error-color);
         font-size: 12px;
@@ -276,6 +314,7 @@ export class PvLoadDialog extends LitElement {
   async openNew() {
     this.step = "preset";
     this.draft = undefined;
+    this.preset = undefined;
     this.confirmDelete = false;
     await this.updateComplete;
     this.dialogEl.showModal();
@@ -286,6 +325,7 @@ export class PvLoadDialog extends LitElement {
     if (!load) return;
     this.step = "form";
     this.draft = structuredClone(load);
+    this.preset = undefined;
     this.confirmDelete = false;
     await this.updateComplete;
     this.dialogEl.showModal();
@@ -304,25 +344,35 @@ export class PvLoadDialog extends LitElement {
     return this.draft?.id === NEW_ID;
   }
 
-  private patch(changes: Partial<LoadDef>) {
-    if (this.draft) this.draft = { ...this.draft, ...changes };
+  private patch(changes: Partial<Omit<CycleLoad, "kind">> | Partial<Omit<ContinuousLoad, "kind">>) {
+    if (this.draft) this.draft = { ...this.draft, ...changes } as LoadDef;
   }
 
   private async pickPreset(p: LoadPreset) {
-    this.draft = { ...structuredClone(p.load), id: NEW_ID };
+    this.draft = { ...structuredClone(p.load), id: NEW_ID } as LoadDef;
+    this.preset = p;
     this.step = "form";
     await this.updateComplete;
     if (!p.load.name) this.renderRoot.querySelector<HTMLInputElement>("input.name")?.focus();
+  }
+
+  /** "Altro" only: swap the template, keeping the typed name. */
+  private setKind(kind: LoadDef["kind"]) {
+    const d = this.draft;
+    if (!d || d.kind === kind) return;
+    this.draft = { ...structuredClone(kind === "cycle" ? OTHER_CYCLE : OTHER_CONTINUOUS), id: NEW_ID, name: d.name } as LoadDef;
   }
 
   private emit(loads: LoadDef[]) {
     this.dispatchEvent(new CustomEvent<LoadDef[]>("loads-change", { detail: loads, bubbles: true, composed: true }));
   }
 
-  private problems(d: LoadDef): { name?: string; window?: string } {
-    const out: { name?: string; window?: string } = {};
+  private problems(d: LoadDef): { name?: string; window?: string; months?: string } {
+    const out: { name?: string; window?: string; months?: string } = {};
     if (!d.name.trim()) out.name = "Dai un nome al carico";
-    if (d.shiftable) {
+    if (d.kind === "continuous") {
+      if (d.source === "estimate" && d.months.length === 0) out.months = "Scegli almeno un mese";
+    } else if (d.shiftable) {
       const hours = effectiveUsage(d, this.config.detected).hours;
       if (d.window_end <= d.window_start) out.window = "L'ora di fine deve venire dopo quella di inizio";
       else if (d.window_end - d.window_start < hours) out.window = `La fascia deve durare almeno quanto un ciclo (${hours} h)`;
@@ -348,21 +398,39 @@ export class PvLoadDialog extends LitElement {
   private deleteLoad() {
     const id = this.draft?.id;
     if (!id) return;
-    this.emit(this.config.loads.filter((l) => l.id !== id).map((l) => (l.after === id ? { ...l, after: null } : l)));
+    this.emit(this.config.loads.filter((l) => l.id !== id).map((l) => (l.kind === "cycle" && l.after === id ? { ...l, after: null } : l)));
     this.close();
   }
 
   private renderPresets() {
     const added = (p: LoadPreset) =>
       !!p.load.name && this.config.loads.some((l) => l.name === p.load.name || l.name.startsWith(`${p.load.name} `));
-    return html`<div class="presets">
-      ${LOAD_PRESETS.map(
-        (p) => html`<button @click=${() => this.pickPreset(p)}>
-          <span class="strong">${p.label ?? p.load.name}</span>
-          ${added(p) ? html`<span class="small muted">già aggiunto</span>` : p.load.name ? nothing : html`<span class="small muted">scrivi tu il nome</span>`}
-        </button>`,
-      )}
-    </div>`;
+    const button = (p: LoadPreset) => html`<button @click=${() => this.pickPreset(p)}>
+      <span class="strong">${p.label ?? p.load.name}</span>
+      ${added(p) ? html`<span class="small muted">già aggiunto</span>` : p.load.name ? nothing : html`<span class="small muted">scrivi tu il nome</span>`}
+    </button>`;
+    const named = LOAD_PRESETS.filter((p) => p.load.name);
+    return html`
+      <section>
+        <h3>Partono, fanno un ciclo e si fermano</h3>
+        <div class="presets">${named.filter((p) => p.load.kind === "cycle").map(button)}</div>
+      </section>
+      <section>
+        <h3>Consumano ogni giorno nei mesi in cui servono</h3>
+        <div class="presets">${named.filter((p) => p.load.kind === "continuous").map(button)}</div>
+      </section>
+      <section>
+        <div class="presets">${LOAD_PRESETS.filter((p) => !p.load.name).map(button)}</div>
+      </section>
+    `;
+  }
+
+  private kindCard(kind: LoadDef["kind"], title: string, hint: string) {
+    const d = this.draft!;
+    return html`<button class="source" role="radio" aria-checked=${d.kind === kind} @click=${() => this.setKind(kind)}>
+      <span class="radio"></span>
+      <span class="source-text"><span class="strong">${title}</span><span class="small muted">${hint}</span></span>
+    </button>`;
   }
 
   private sourceCard(value: LoadDef["source"], title: string, hint: string, disabled = false) {
@@ -373,19 +441,47 @@ export class PvLoadDialog extends LitElement {
     </button>`;
   }
 
-  private renderSensor(f: Formatters, d: LoadDef) {
-    const options = this.config.sensor_options;
+  private sensorSelect(d: LoadDef) {
+    return selectField(
+      "Sensore",
+      d.sensor_entity_id ?? "",
+      [{ value: "", label: "Scegli…" }, ...this.config.sensor_options.map((o) => ({ value: o.entity_id, label: o.name }))],
+      (v) => this.patch({ sensor_entity_id: v || null }),
+      undefined,
+      true,
+    );
+  }
+
+  private renderContinuousSensor(f: Formatters, d: ContinuousLoad) {
+    const use = continuousUsage(d, this.config.detected);
+    const det = use.measured;
+    const max = det ? Math.max(0.1, ...det.kwh_per_day_by_month) : 1;
+    return html`
+      ${this.sensorSelect(d)}
+      ${!d.sensor_entity_id
+        ? html`<p class="small muted note">Fino a quando non scegli un sensore uso la stima.</p>`
+        : det
+          ? html`<div class="measured">
+              <p>
+                Negli ultimi 12 mesi: <span class="strong">${f.kwh(use.yearKwh)}</span>, in media ${f.num(use.perDay)} kWh/giorno nei mesi attivi
+                (${monthsLabel(use.months)})
+              </p>
+              <div class="hist" role="img" aria-label="Consumo al giorno mese per mese negli ultimi 12 mesi">
+                ${det.kwh_per_day_by_month.map(
+                  (v, m) => html`<span style="height:${(v / max) * 100}%" title="${MONTHS[m]}: ${f.num(v)} kWh/giorno"></span>`,
+                )}
+              </div>
+              <div class="hist-axis months">${MONTHS.map((m) => html`<span>${m[0]}</span>`)}</div>
+            </div>`
+          : html`<p class="small muted note">Nello storico di questo sensore non trovo un consumo giornaliero: uso la stima.</p>`}
+    `;
+  }
+
+  private renderSensor(f: Formatters, d: CycleLoad) {
     const det = effectiveUsage(d, this.config.detected).measured;
     const max = det ? Math.max(1, ...det.start_histogram) : 1;
     return html`
-      ${selectField(
-        "Sensore",
-        d.sensor_entity_id ?? "",
-        [{ value: "", label: "Scegli…" }, ...options.map((o) => ({ value: o.entity_id, label: o.name }))],
-        (v) => this.patch({ sensor_entity_id: v || null }),
-        undefined,
-        true,
-      )}
+      ${this.sensorSelect(d)}
       ${!d.sensor_entity_id
         ? html`<p class="small muted note">Fino a quando non scegli un sensore uso la stima.</p>`
         : det
@@ -403,7 +499,72 @@ export class PvLoadDialog extends LitElement {
     `;
   }
 
-  private renderEstimate(d: LoadDef) {
+  private toggleMonth(d: ContinuousLoad, m: number) {
+    const months = d.months.includes(m) ? d.months.filter((x) => x !== m) : [...d.months, m].sort((a, b) => a - b);
+    this.patch({ months });
+  }
+
+  private renderContinuousEstimate(d: ContinuousLoad, monthsError?: string) {
+    const f = formatters(this.locale);
+    const days = d.months.reduce((a, m) => a + DAYS_IN_MONTH[m - 1], 0);
+    return html`
+      ${numberField("Consumo al giorno", d.kwh_per_day, "kWh/giorno", this.locale, (v) => this.patch({ kwh_per_day: v }), {
+        ...LOAD_LIMITS.kwh_per_day,
+        hint: "Nei mesi in cui funziona; lo trovi nell'app della pompa di calore o del clima",
+      })}
+      <div class="field months-field">
+        <span class="field-text">
+          <span class="field-label">Mesi in cui funziona</span>
+          <span class="field-hint">${days ? `${monthsLabel(d.months)} · circa ${f.kwh(d.kwh_per_day * days)} l'anno` : "Nessun mese scelto"}</span>
+        </span>
+        <div class="month-chips" role="group" aria-label="Mesi in cui funziona">
+          ${MONTHS.map(
+            (name, i) => html`<button
+              class="month-chip"
+              aria-pressed=${d.months.includes(i + 1)}
+              @click=${() => this.toggleMonth(d, i + 1)}
+            >
+              ${name}
+            </button>`,
+          )}
+        </div>
+      </div>
+      ${monthsError ? html`<p class="error" role="alert">${monthsError}</p>` : nothing}
+      ${selectField(
+        "Quando consuma",
+        d.hour_profile,
+        (Object.keys(HOUR_PROFILE_LABEL) as HourProfile[]).map((k) => ({ value: k, label: HOUR_PROFILE_LABEL[k] })),
+        (v) => this.patch({ hour_profile: v as HourProfile }),
+        "Riscaldamento di solito mattina e sera, raffrescamento il pomeriggio",
+      )}
+    `;
+  }
+
+  private renderContinuousShift(d: ContinuousLoad) {
+    const loc = this.locale;
+    return html`
+      ${switchField(
+        "Posso anticiparlo (preriscaldo/preraffresco)",
+        d.shiftable,
+        (v) => this.patch({ shiftable: v }),
+        "La casa fa da accumulo: scaldi o raffreschi un po' prima, quando c'è sole",
+      )}
+      ${d.shiftable
+        ? html`
+            ${numberField("Quota anticipabile", Math.round(d.shift_share * 100), "%", loc, (v) => this.patch({ shift_share: v / 100 }), {
+              ...LOAD_LIMITS.shift_share_pct,
+              hint: "La parte del consumo di ogni ora che può avvenire prima",
+            })}
+            ${numberField("Fino a quante ore prima", d.shift_advance_h, "h", loc, (v) => this.patch({ shift_advance_h: v }), {
+              ...LOAD_LIMITS.shift_advance_h,
+              hint: "Più ore servono a una casa ben isolata",
+            })}
+          `
+        : nothing}
+    `;
+  }
+
+  private renderEstimate(d: CycleLoad) {
     const loc = this.locale;
     return html`
       ${numberField("Consumo per ciclo", d.kwh_per_cycle, "kWh", loc, (v) => this.patch({ kwh_per_cycle: v }), {
@@ -421,8 +582,8 @@ export class PvLoadDialog extends LitElement {
     `;
   }
 
-  private renderShift(d: LoadDef, windowError?: string) {
-    const others = this.config.loads.filter((l) => l.id !== d.id && !createsLoop(this.config.loads, d.id, l.id));
+  private renderShift(d: CycleLoad, windowError?: string) {
+    const others = this.config.loads.filter((l) => l.kind === "cycle" && l.id !== d.id && !createsLoop(this.config.loads, d.id, l.id));
     return html`
       ${switchField("Posso farlo partire in un altro orario", d.shiftable, (v) => this.patch({ shiftable: v }), "Il calcolo lo sposta nelle ore con più sole, dentro la fascia qui sotto")}
       ${d.shiftable
@@ -465,23 +626,49 @@ export class PvLoadDialog extends LitElement {
           </span>
         </label>
         ${problems.name && d.name !== "" ? html`<p class="error">${problems.name}</p>` : nothing}
+        ${this.isNew && this.preset?.hint ? html`<p class="small muted note">${this.preset.hint}</p>` : nothing}
       </section>
+      ${this.isNew && this.preset && !this.preset.load.name
+        ? html`<section>
+            <h3>Che tipo di carico è?</h3>
+            <div class="sources" role="radiogroup" aria-label="Che tipo di carico è">
+              ${this.kindCard("cycle", "A cicli (lavatrice, auto…)", "Parte, fa il suo ciclo e si ferma")}
+              ${this.kindCard("continuous", "Continuo (clima, ventilazione…)", "Consuma ogni giorno nei mesi in cui funziona")}
+            </div>
+          </section>`
+        : nothing}
       <section>
         <h3>Da dove prendo i consumi?</h3>
         <div class="sources" role="radiogroup" aria-label="Da dove prendo i consumi">
           ${this.sourceCard(
             "sensor",
-            "Da un sensore che misura solo questo elettrodomestico (consigliato)",
-            noSensors ? "Nessun sensore di energia trovato in Home Assistant" : "Una presa smart o una pinza sul suo circuito: cicli e orari veri",
+            "Da un sensore che misura solo questo carico (consigliato)",
+            noSensors
+              ? "Nessun sensore di energia trovato in Home Assistant"
+              : d.kind === "cycle"
+                ? "Una presa smart o una pinza sul suo circuito: cicli e orari veri"
+                : "Il contatore di energia della pompa di calore o del clima: consumi veri mese per mese",
             noSensors,
           )}
-          ${this.sourceCard("estimate", "Lo stimo io", "Scrivi consumo per ciclo e quante volte lo usi")}
+          ${this.sourceCard(
+            "estimate",
+            "Lo stimo io",
+            d.kind === "cycle" ? "Scrivi consumo per ciclo e quante volte lo usi" : "Scrivi quanto consuma al giorno e in quali mesi",
+          )}
         </div>
-        <div class="mode">${d.source === "sensor" ? this.renderSensor(f, d) : this.renderEstimate(d)}</div>
+        <div class="mode">
+          ${d.kind === "cycle"
+            ? d.source === "sensor"
+              ? this.renderSensor(f, d)
+              : this.renderEstimate(d)
+            : d.source === "sensor"
+              ? this.renderContinuousSensor(f, d)
+              : this.renderContinuousEstimate(d, problems.months)}
+        </div>
       </section>
       <section>
         <h3>Spostamento</h3>
-        ${this.renderShift(d, problems.window)}
+        ${d.kind === "cycle" ? this.renderShift(d, problems.window) : this.renderContinuousShift(d)}
       </section>
     `;
   }
@@ -508,7 +695,7 @@ export class PvLoadDialog extends LitElement {
   render() {
     const f = formatters(this.locale);
     const d = this.step === "form" ? this.draft : undefined;
-    const title = !d ? "Che elettrodomestico è?" : this.isNew ? d.name.trim() || "Nuovo carico" : d.name.trim() || "Carico";
+    const title = !d ? "Che carico aggiungi?" : this.isNew ? d.name.trim() || "Nuovo carico" : d.name.trim() || "Carico";
     return html`<dialog aria-label=${title} @close=${this.onClosed}>
       ${this.config
         ? html`

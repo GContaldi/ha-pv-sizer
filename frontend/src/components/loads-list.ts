@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from "lit";
 import type { LoadDef, PanelConfig } from "../api/types";
 import { formatters, type Formatters } from "../format";
-import { effectiveUsage } from "../loads";
+import { continuousUsage, effectiveUsage, monthsLabel } from "../loads";
 import { shared } from "../styles";
 import type { PvLoadDialog } from "./load-dialog";
 import "./load-dialog";
@@ -102,16 +102,23 @@ export class PvLoadsList extends LitElement {
   }
 
   private usageLine(f: Formatters, l: LoadDef): string {
-    const use = effectiveUsage(l, this.config.detected);
-    const usage = `${f.num(use.perWeek, 0)}/sett · ${f.num(use.kwh)} kWh`;
+    let usage: string;
+    if (l.kind === "cycle") {
+      const use = effectiveUsage(l, this.config.detected);
+      usage = `${f.num(use.perWeek, 0)}/sett · ${f.num(use.kwh)} kWh`;
+    } else {
+      const use = continuousUsage(l, this.config.detected);
+      usage = `${f.num(use.perDay)} kWh/giorno · ${monthsLabel(use.months)}`;
+    }
     if (l.source === "estimate") return `Stima · ${usage}`;
     if (!l.sensor_entity_id) return `Sensore da scegliere · intanto stima: ${usage}`;
     const sensor = this.config.sensor_options.find((o) => o.entity_id === l.sensor_entity_id)?.name ?? l.sensor_entity_id;
     return `Sensore · ${sensor} · ${usage}`;
   }
 
-  private shiftLine(l: LoadDef): string {
+  private shiftLine(f: Formatters, l: LoadDef): string {
     if (!l.shiftable) return "Resta agli orari di oggi";
+    if (l.kind === "continuous") return `Anticipabile ${f.pct(l.shift_share)} fino a ${l.shift_advance_h} h`;
     const after = l.after ? this.config.loads.find((x) => x.id === l.after)?.name : undefined;
     return `Spostabile ${l.window_start}–${l.window_end}${after ? ` · dopo ${after}` : ""}`;
   }
@@ -129,14 +136,14 @@ export class PvLoadsList extends LitElement {
                   <span class="text">
                     <span class="name">${l.name}${l.source === "sensor" && !l.sensor_entity_id ? html`<span class="warn">Sensore da scegliere</span>` : nothing}</span>
                     <span class="small muted">${this.usageLine(f, l)}</span>
-                    <span class="small muted">${this.shiftLine(l)}</span>
+                    <span class="small muted">${this.shiftLine(f, l)}</span>
                   </span>
                   <span class="edit" aria-hidden="true">Modifica</span>
                 </button>
               </li>`,
             )}
           </ul>`
-        : html`<p class="muted empty">Nessun carico. Aggiungi gli elettrodomestici che potresti far partire quando c'è sole.</p>`}
+        : html`<p class="muted empty">Nessun carico. Aggiungi gli elettrodomestici che potresti far partire quando c'è sole, e la pompa di calore o il clima.</p>`}
       <button class="add" @click=${() => this.dialog.openNew()}>+ Aggiungi carico</button>
       <pv-load-dialog .config=${this.config} .locale=${this.locale}></pv-load-dialog>
     `;
