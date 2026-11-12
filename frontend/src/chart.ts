@@ -50,9 +50,9 @@ export function baseOption(
 ): ChartOption {
   return {
     color: c.palette,
-    textStyle: { color: c.secondary, fontFamily: c.font },
+    textStyle: { color: c.secondary, fontFamily: c.font, fontSize: 12 },
     grid: { left: 4, right: 12, top: 36, bottom: opts.xName ? 24 : 4, containLabel: true },
-    legend: { top: 0, left: 0, icon: "roundRect", itemWidth: 10, itemHeight: 10, itemGap: 16, textStyle: { color: c.secondary, fontFamily: c.font } },
+    legend: { top: 0, left: 0, icon: "roundRect", itemWidth: 10, itemHeight: 10, itemGap: 16, textStyle: { color: c.secondary, fontFamily: c.font, fontSize: 12 } },
     tooltip: {
       trigger: "axis",
       backgroundColor: c.card,
@@ -66,15 +66,15 @@ export function baseOption(
       name: opts.xName,
       nameLocation: "middle",
       nameGap: 28,
-      nameTextStyle: { color: c.secondary },
+      nameTextStyle: { color: c.secondary, fontSize: 12 },
       axisLine: { lineStyle: { color: c.divider } },
       axisTick: { show: false },
-      axisLabel: { color: c.secondary },
+      axisLabel: { color: c.secondary, fontSize: 12 },
     },
     yAxis: {
       type: "value",
-      splitLine: { lineStyle: { color: c.divider } },
-      axisLabel: { color: c.secondary, formatter: (v: number) => opts.axisFormatter(v) },
+      splitLine: { lineStyle: { color: c.divider, opacity: 0.5 } },
+      axisLabel: { color: c.secondary, fontSize: 12, formatter: (v: number) => opts.axisFormatter(v) },
     },
   };
 }

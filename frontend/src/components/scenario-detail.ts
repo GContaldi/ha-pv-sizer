@@ -24,15 +24,52 @@ export class PvScenarioDetail extends LitElement {
         display: flex;
         flex-direction: column;
         gap: 24px;
+        padding: 16px 20px 20px;
+        background: var(--card-background-color);
+        border: 1px solid var(--divider-color);
+        border-radius: var(--ha-card-border-radius, 12px);
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 8px 12px;
+        flex-wrap: wrap;
+        margin-bottom: -8px;
+      }
+      button.change {
+        font: inherit;
+        font-weight: 500;
+        color: var(--primary-color);
+        background: none;
+        border: none;
+        border-radius: 8px;
+        min-height: 40px;
+        padding: 0 12px;
+        margin-right: -12px;
+        cursor: pointer;
+      }
+      button.change:hover {
+        background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .hero .stat-value {
+        font-size: 30px;
+        line-height: 36px;
       }
       .stats {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 20px 16px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--divider-color);
       }
       .stat-value {
-        font-size: 22px;
-        line-height: 28px;
+        font-size: 18px;
+        line-height: 24px;
         font-weight: 500;
         font-variant-numeric: tabular-nums;
       }
@@ -49,12 +86,6 @@ export class PvScenarioDetail extends LitElement {
         grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
         gap: 24px;
         align-items: start;
-      }
-      .title {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
       }
       .tag {
         font-size: 12px;
@@ -105,22 +136,32 @@ export class PvScenarioDetail extends LitElement {
         flex-direction: column;
         gap: 4px;
       }
-      @container (max-width: 800px) {
+      @container (max-width: 900px) {
         .stats {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
+      }
+      @container (max-width: 800px) {
         .two,
         .costs {
           grid-template-columns: minmax(0, 1fr);
         }
       }
       @container (max-width: 600px) {
+        .hero .stat-value {
+          font-size: 24px;
+          line-height: 30px;
+        }
         .stats {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
     `,
   ];
+
+  private changeScenario() {
+    this.dispatchEvent(new CustomEvent("change-scenario", { bubbles: true, composed: true }));
+  }
 
   private stat(value: string, label: string, sub: string, good = false) {
     return html`<div>
@@ -227,29 +268,33 @@ export class PvScenarioDetail extends LitElement {
     const toBattery = Math.max(0, e.pv_used_kwh - direct);
 
     return html`
-      <div class="title">
+      <div class="head">
         <h2>${scenarioName(f, s.pv_kwp, s.battery_kwh)}</h2>
         ${s.shift && hasPv ? html`<span class="tag">con spostamento carichi</span>` : nothing}
+        <span class="spacer"></span>
+        <button class="change" @click=${this.changeScenario}>Cambia</button>
       </div>
 
-      <div class="stats">
-        ${hasPv
-          ? html`
-              ${this.stat(f.eur(s.bill_eur), "Bolletta annua", `oggi ${f.eur(todayBill)}`)}
-              ${this.stat(f.eur(s.saving_eur), "Risparmio annuo", `−${f.pct(s.saving_eur / todayBill)} sulla bolletta`, s.saving_eur > 0)}
+      ${hasPv
+        ? html`
+            <div class="hero">
+              ${this.stat(f.eur(s.saving_eur), "Risparmio annuo", `bolletta da ${f.eur(todayBill)} a ${f.eur(s.bill_eur)}`, s.saving_eur > 0)}
               ${this.stat(f.years(s.payback_years), "Rientro", `${f.eur(s.saving_eur)}/anno su ${f.eur(s.investment_eur)}`)}
               ${this.stat(f.eur(s.gain_eur), `Guadagno in ${this.config.horizon_years} anni`, "netto, ricambi compresi", s.gain_eur > 0)}
+            </div>
+            <div class="stats">
+              ${this.stat(f.eur(s.bill_eur), "Bolletta annua", `oggi ${f.eur(todayBill)}`)}
               ${this.stat(f.kwh(s.consumption_kwh), "Consumo di casa", `${f.num(s.import_kwh, 0)} kWh ancora dalla rete`)}
               ${this.stat(f.kwh(s.pv_kwh), "Produzione FV", `${f.num(s.pv_kwh / s.pv_kwp, 0)} kWh per kWp`)}
               ${this.stat(f.pct(s.self_sufficiency), "Autosufficienza", `${f.num(s.consumption_kwh - s.import_kwh, 0)} su ${f.kwh(s.consumption_kwh)}`)}
               ${this.stat(f.pct(s.self_consumption), "Autoconsumo", `${f.num(s.pv_used_kwh, 0)} su ${f.kwh(s.pv_kwh)}`)}
-            `
-          : html`
-              ${this.stat(f.eur(s.bill_eur), "Bolletta annua", "incluse le quote fisse")}
-              ${this.stat(f.kwh(e.consumption_kwh), "Consumo annuo", "tutto dalla rete")}
-              ${this.stat(f.eur2(s.bill_eur / e.consumption_kwh), "Costo medio per kWh", "quote fisse comprese")}
-            `}
-      </div>
+            </div>
+          `
+        : html`<div class="hero">
+            ${this.stat(f.eur(s.bill_eur), "Bolletta annua", "incluse le quote fisse")}
+            ${this.stat(f.kwh(e.consumption_kwh), "Consumo annuo", "tutto dalla rete")}
+            ${this.stat(f.eur2(s.bill_eur / e.consumption_kwh), "Costo medio per kWh", "quote fisse comprese")}
+          </div>`}
 
       <div class="stack" style="gap:16px">
         <h3>Bilancio annuo</h3>
@@ -270,8 +315,7 @@ export class PvScenarioDetail extends LitElement {
         </div>
         ${hasBattery && toBattery > 0
           ? html`<span class="small muted">
-              La batteria restituisce ${f.num(fromBattery, 0)} dei ${f.kwh(toBattery)} caricati: ${f.kwh(Math.max(0, toBattery - fromBattery))} si perdono tra carica e scarica.
-              Per questo l'FV usato in casa (${f.kwh(e.consumption_kwh - e.import_kwh)}) è un po' meno dell'FV autoconsumato (${f.kwh(e.pv_used_kwh)}).
+              La batteria perde circa il ${f.pct((toBattery - fromBattery) / toBattery)} tra carica e scarica (${f.kwh(Math.max(0, toBattery - fromBattery))}/anno).
             </span>`
           : nothing}
         <details class="defs" ?hidden=${!hasPv}>
@@ -297,7 +341,6 @@ export class PvScenarioDetail extends LitElement {
         <div class="stack">
           <h3>Come viene coperto il consumo (kWh/mese)</h3>
           <pv-chart .option=${coverage} height="260"></pv-chart>
-          <span class="small muted">D'inverno la pompa di calore consuma molto quando il FV produce poco.</span>
         </div>
         ${hasPv
           ? html`<div class="stack">

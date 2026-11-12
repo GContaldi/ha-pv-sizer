@@ -5,13 +5,21 @@ import { shared } from "../styles";
 
 export type MetricKey = "saving" | "gain" | "payback" | "self_sufficiency" | "self_consumption";
 
-export const METRICS: { key: MetricKey; label: string }[] = [
+export const metrics = (horizonYears: number): { key: MetricKey; label: string }[] => [
   { key: "saving", label: "Risparmio annuo" },
-  { key: "gain", label: "Guadagno in 25 anni" },
+  { key: "gain", label: `Guadagno in ${horizonYears} anni` },
   { key: "payback", label: "Rientro" },
   { key: "self_sufficiency", label: "Autosufficienza" },
   { key: "self_consumption", label: "Autoconsumo" },
 ];
+
+const LEGEND: Record<MetricKey, [string, string]> = {
+  saving: ["risparmia meno", "risparmia di più"],
+  gain: ["guadagna meno", "guadagna di più"],
+  payback: ["rientra più tardi", "rientra prima"],
+  self_sufficiency: ["meno autosufficiente", "più autosufficiente"],
+  self_consumption: ["usa meno del suo FV", "usa più del suo FV"],
+};
 
 export interface Selection {
   pv_kwp: number;
@@ -57,7 +65,9 @@ export class PvScenarioGrid extends LitElement {
     shift: { type: Boolean },
     selected: { attribute: false },
     locale: { type: String },
+    horizonYears: { type: Number },
   };
+  declare horizonYears: number;
   declare results: Results;
   declare pvSizes: number[];
   declare batterySizes: number[];
@@ -169,6 +179,34 @@ export class PvScenarioGrid extends LitElement {
       .value {
         font-weight: 500;
       }
+      .best {
+        position: absolute;
+        top: 0;
+        right: 0;
+        padding: 0 8px;
+        border-radius: 0 7px 0 8px;
+        font-size: 12px;
+        line-height: 20px;
+        font-weight: 500;
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 8px;
+      }
+      .ramp {
+        width: 96px;
+        height: 10px;
+        border-radius: 5px;
+        background: linear-gradient(
+          to right,
+          color-mix(in srgb, var(--primary-color) 6%, var(--secondary-background-color)),
+          color-mix(in srgb, var(--primary-color) 48%, var(--secondary-background-color))
+        );
+      }
     `,
   ];
 
@@ -177,11 +215,14 @@ export class PvScenarioGrid extends LitElement {
   }
 
   render() {
-    const f = formatters(this.locale);
+    const f = formatters(this.locale, this.horizonYears);
     const cells = new Map(this.results.cells.filter((c) => c.shift === this.shift).map((c) => [`${c.pv_kwp}|${c.battery_kwh}`, c]));
-    const values = [...cells.values()].map((c) => metricValue(c, this.metric)).filter((v): v is number => v !== null);
+    const shown = this.pvSizes.flatMap((k) => this.batterySizes.map((cap) => cells.get(`${k}|${cap}`))).filter((c): c is CellSummary => !!c);
+    const values = shown.map((c) => metricValue(c, this.metric)).filter((v): v is number => v !== null);
     const min = Math.min(...values);
     const max = Math.max(...values);
+    const bestValue = this.metric === "payback" ? min : max;
+    const best = shown.find((c) => metricValue(c, this.metric) === bestValue);
     const format = (v: number | null) => {
       if (this.metric === "payback") return f.years(v);
       if (v === null) return "–";
@@ -215,6 +256,7 @@ export class PvScenarioGrid extends LitElement {
                 const sub = cellDetail(f, c, this.metric);
                 return html`<button class="cell ${isSel(k, cap) ? "selected" : ""}" aria-pressed=${isSel(k, cap)} @click=${() => this.select(k, cap)}>
                   ${v !== null ? html`<div class="tint" style="opacity:${0.06 + 0.42 * t}"></div>` : nothing}
+                  ${c === best ? html`<span class="best">Migliore</span>` : nothing}
                   <div class="content">
                     <div class="value">${format(v)}</div>
                     <div class="small muted">${sub}</div>
@@ -224,6 +266,12 @@ export class PvScenarioGrid extends LitElement {
             `,
           )}
         </div>
+      </div>
+      <div class="legend small muted">
+        <span>${LEGEND[this.metric][0]}</span>
+        <span class="ramp" aria-hidden="true"></span>
+        <span>${LEGEND[this.metric][1]}</span>
+        <span>· Tocca una casella per vederne il dettaglio.</span>
       </div>
     `;
   }

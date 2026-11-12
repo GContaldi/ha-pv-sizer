@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
 import { fetchConfig, fetchResults, fetchScenario, updateLoads, updateSettings, type HomeAssistant } from "./api/client";
 import type { LoadDef, PanelConfig, Results, ScenarioDetail, Settings } from "./api/types";
-import { METRICS, type MetricKey, type Selection } from "./components/scenario-grid";
+import { metrics, type MetricKey, type Selection } from "./components/scenario-grid";
 import { shared } from "./styles";
 import "./components/scenario-grid";
 import "./components/scenario-detail";
@@ -156,9 +156,47 @@ export class PvSizerPanel extends LitElement {
       .shift {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 12px;
+        min-height: 48px;
+        padding: 0 4px;
+        font-size: 14px;
         white-space: nowrap;
         cursor: pointer;
+      }
+      #grid {
+        scroll-margin-top: 16px;
+      }
+      .segmented {
+        display: flex;
+        max-width: 100%;
+        overflow-x: auto;
+        border: 1px solid var(--divider-color);
+        border-radius: 20px;
+      }
+      .segmented button {
+        font: inherit;
+        font-size: 14px;
+        flex: none;
+        height: 40px;
+        padding: 0 16px;
+        border: none;
+        border-left: 1px solid var(--divider-color);
+        background: none;
+        color: var(--primary-text-color);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .segmented button:first-child {
+        border-left: none;
+      }
+      .segmented button[aria-pressed="true"] {
+        background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+        color: var(--primary-color);
+        font-weight: 500;
+      }
+      .segmented button:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: -2px;
       }
       :host([narrow]) .tabs {
         margin-left: 8px;
@@ -238,22 +276,32 @@ export class PvSizerPanel extends LitElement {
     if (cfg) await this.refresh(cfg);
   }
 
+  private shiftToggle() {
+    return html`<label class="shift">
+      <span>Includi spostamento carichi</span>
+      <span class="switch">
+        <input type="checkbox" .checked=${this.shift} @change=${(e: Event) => this.onShift((e.target as HTMLInputElement).checked)} />
+        <span></span>
+      </span>
+    </label>`;
+  }
+
+  private scrollToGrid() {
+    this.renderRoot.querySelector("#grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   private renderScenari() {
     if (!this.results || !this.config) return nothing;
     return html`
-      <div class="stack" style="gap:12px">
+      <div class="stack" id="grid" style="gap:12px">
         <div class="row">
-          ${METRICS.map(
-            (m) => html`<button class="pill ${this.metric === m.key ? "active" : ""}" @click=${() => (this.metric = m.key)}>${m.label}</button>`,
-          )}
+          <div class="segmented" role="group" aria-label="Misura mostrata nella tabella">
+            ${metrics(this.config.horizon_years).map(
+              (m) => html`<button aria-pressed=${this.metric === m.key} @click=${() => (this.metric = m.key)}>${m.label}</button>`,
+            )}
+          </div>
           <span class="spacer"></span>
-          <label class="shift">
-            <span class="small muted">Con spostamento carichi</span>
-            <span class="switch">
-              <input type="checkbox" .checked=${this.shift} @change=${(e: Event) => this.onShift((e.target as HTMLInputElement).checked)} />
-              <span></span>
-            </span>
-          </label>
+          ${this.shiftToggle()}
         </div>
         <pv-scenario-grid
           .results=${this.results}
@@ -263,18 +311,26 @@ export class PvSizerPanel extends LitElement {
           .shift=${this.shift}
           .selected=${this.selected}
           .locale=${this.locale}
+          .horizonYears=${this.config.horizon_years}
           @scenario-select=${this.onSelect}
         ></pv-scenario-grid>
-        <span class="small muted">Colore più intenso = migliore per la misura scelta. Clicca una casella per vederne il dettaglio.</span>
       </div>
       ${this.detail
-        ? html`<pv-scenario-detail .detail=${this.detail} .config=${this.config} .locale=${this.locale} .themeKey=${this.themeKey}></pv-scenario-detail>
+        ? html`<pv-scenario-detail
+              .detail=${this.detail}
+              .config=${this.config}
+              .locale=${this.locale}
+              .themeKey=${this.themeKey}
+              @change-scenario=${this.scrollToGrid}
+            ></pv-scenario-detail>
             <pv-shift-savings
               .detail=${this.detail}
               .config=${this.config}
               .results=${this.results}
               .locale=${this.locale}
               .themeKey=${this.themeKey}
+              .shift=${this.shift}
+              @shift-change=${(e: CustomEvent<boolean>) => this.onShift(e.detail)}
               @navigate=${(e: CustomEvent<string>) => this.go(e.detail)}
             ></pv-shift-savings>`
         : nothing}

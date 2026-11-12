@@ -13,7 +13,9 @@ export class PvShiftSavings extends LitElement {
     results: { attribute: false },
     locale: { type: String },
     themeKey: { type: String },
+    shift: { type: Boolean },
   };
+  declare shift: boolean;
   declare detail: ScenarioDetail;
   declare config: PanelConfig;
   declare results: Results;
@@ -24,9 +26,25 @@ export class PvShiftSavings extends LitElement {
     shared,
     css`
       :host {
+        display: block;
+      }
+      .wrap {
         display: flex;
         flex-direction: column;
         gap: 16px;
+        padding: 16px 20px 20px;
+        background: var(--card-background-color);
+        border: 1px solid var(--divider-color);
+        border-radius: var(--ha-card-border-radius, 12px);
+      }
+      .shift {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        font-size: 14px;
+        white-space: nowrap;
+        cursor: pointer;
       }
       .headline {
         display: flex;
@@ -49,11 +67,17 @@ export class PvShiftSavings extends LitElement {
       }
       button.link {
         font: inherit;
+        font-weight: 500;
         color: var(--primary-color);
         background: none;
         border: none;
-        padding: 0;
+        border-radius: 8px;
+        min-height: 40px;
+        padding: 0 12px;
         cursor: pointer;
+      }
+      button.link:hover {
+        background: color-mix(in srgb, var(--primary-color) 8%, transparent);
       }
       @container (max-width: 800px) {
         .two {
@@ -76,10 +100,24 @@ export class PvShiftSavings extends LitElement {
     const header = html`<div class="row">
       <h2>Spostamento carichi</h2>
       <span class="spacer"></span>
-      <button class="link small" @click=${() => this.goToLoads()}>Modifica i carichi</button>
+      ${shiftable.length
+        ? html`<label class="shift">
+            <span>Includi spostamento carichi</span>
+            <span class="switch">
+              <input
+                type="checkbox"
+                .checked=${this.shift}
+                @change=${(e: Event) =>
+                  this.dispatchEvent(new CustomEvent<boolean>("shift-change", { detail: (e.target as HTMLInputElement).checked, bubbles: true, composed: true }))}
+              />
+              <span></span>
+            </span>
+          </label>`
+        : nothing}
+      <button class="link" @click=${() => this.goToLoads()}>Modifica i carichi</button>
     </div>`;
     if (shiftable.length === 0) {
-      return html`${header}<p class="muted">Nessun carico spostabile. Aggiungine uno in Carichi per vedere quanto vale spostarlo nelle ore di sole.</p>`;
+      return html`<div class="wrap">${header}<p class="muted">Nessun carico spostabile. Aggiungine uno in Impostazioni per vedere quanto vale spostarlo nelle ore di sole.</p></div>`;
     }
 
     const values = new Map(this.detail.loads.map((v) => [v.load_id, v]));
@@ -100,21 +138,18 @@ export class PvShiftSavings extends LitElement {
       })),
     };
 
-    return html`
+    return html`<div class="wrap">
       ${header}
       <div class="stack">
         <div class="headline">
           <span class="big">${f.eur(effect)}</span>
-          <span>l'anno in meno in bolletta, spostando i carichi spostabili nelle ore di sole.</span>
+          <span>l'anno in meno in bolletta, facendo partire i carichi nelle ore di sole.</span>
         </div>
-        <span class="small muted">
-          Per vedere tutti gli scenari con questo risparmio attiva "Con spostamento carichi" sopra la tabella.
-          ${tableSum - effect > 5
-            ? `La tabella sotto somma ${f.eur(tableSum)}: lì ogni carico è valutato da solo e senza batteria. Insieme si contendono lo stesso surplus${
-                s.battery_kwh > 0 ? " e la batteria ne usa già una parte" : ""
-              }, quindi l'effetto reale è minore.`
-            : ""}
-        </span>
+        ${tableSum - effect > 5
+          ? html`<span class="small muted">
+              Presi uno per uno: ${f.eur(tableSum)}. Insieme: ${f.eur(effect)}, perché si dividono lo stesso sole${s.battery_kwh > 0 ? " e la batteria ne usa già una parte" : ""}.
+            </span>`
+          : nothing}
       </div>
       <div class="two">
         <div class="stack">
@@ -125,7 +160,7 @@ export class PvShiftSavings extends LitElement {
                 <th>Carico</th>
                 <th class="num">Cicli/anno</th>
                 <th class="num">Costo ciclo, orari di oggi</th>
-                <th class="num">Spostato</th>
+                <th class="num">Costo ciclo spostato</th>
                 <th class="num">Risparmio/anno</th>
               </tr>
             </thead>
@@ -144,8 +179,8 @@ export class PvShiftSavings extends LitElement {
             </tbody>
           </table>
           <span class="small muted">
-            Costo ciclo = energia dalla rete × ${f.eur3(this.config.derived.grid_price_eur_kwh)} + energia FV usata × ${f.eur3(this.config.settings.tariff.export_price)} (quello che
-            avresti incassato immettendola). Non considera la batteria.
+            Un kWh dalla rete costa € ${f.num(this.config.derived.grid_price_eur_kwh, 3)}; uno dal tuo FV costa € ${f.num(this.config.settings.tariff.export_price, 3)}, cioè quello
+            che non incassi immettendolo. Ogni carico è valutato da solo e senza batteria.
           </span>
         </div>
         <div class="stack">
@@ -154,7 +189,7 @@ export class PvShiftSavings extends LitElement {
           <span class="small muted">Oltre una certa potenza il guadagno si ferma: con tanto FV anche i cicli agli orari di oggi trovano spesso il sole.</span>
         </div>
       </div>
-    `;
+    </div>`;
   }
 }
 
