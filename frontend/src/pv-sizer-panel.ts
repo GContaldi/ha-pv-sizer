@@ -175,7 +175,11 @@ export class PvSizerPanel extends LitElement {
   private async loadDetail() {
     const request = ++this.detailRequest;
     const detail = await this.run(() => fetchScenario(this.hass!, { ...this.selected, shift: this.shift }));
-    if (detail && request === this.detailRequest) this.detail = detail;
+    if (!detail || request !== this.detailRequest) return;
+    this.detail = detail;
+    // The backend falls back to another scenario when the selected size was removed.
+    const { pv_kwp, battery_kwh } = detail.summary;
+    if (pv_kwp !== this.selected.pv_kwp || battery_kwh !== this.selected.battery_kwh) this.selected = { pv_kwp, battery_kwh };
   }
 
   private onSelect(e: CustomEvent<Selection>) {
@@ -217,8 +221,8 @@ export class PvSizerPanel extends LitElement {
         </div>
         <pv-scenario-grid
           .results=${this.results}
-          .pvSizes=${this.config.pv_sizes_kwp}
-          .batterySizes=${this.config.battery_sizes_kwh}
+          .pvSizes=${this.config.settings.scenarios.pv_sizes_kwp}
+          .batterySizes=${[0, ...this.config.settings.scenarios.battery_sizes_kwh]}
           .metric=${this.metric}
           .shift=${this.shift}
           .selected=${this.selected}

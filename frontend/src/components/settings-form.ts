@@ -1,7 +1,8 @@
 import { LitElement, css, html, nothing } from "lit";
-import type { Lifetime, PanelConfig, Settings, SystemCosts, Tariff } from "../api/types";
+import type { Lifetime, PanelConfig, ScenarioSizes, Settings, SystemCosts, Tariff } from "../api/types";
 import { numberField, selectField } from "../fields";
-import { formatters } from "../format";
+import { formatters, parseNumber, type Formatters } from "../format";
+import { SIZE_LIMITS, normalizeSizes } from "../scenario-sizes";
 import { shared } from "../styles";
 
 export class PvSettingsForm extends LitElement {
@@ -22,6 +23,54 @@ export class PvSettingsForm extends LitElement {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 16px;
         align-items: start;
+      }
+      .sizes {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px 32px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        height: 28px;
+        padding: 0 4px 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--divider-color);
+        background: var(--secondary-background-color);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      .chip.fixed {
+        padding-right: 12px;
+        color: var(--secondary-text-color);
+      }
+      .chip button {
+        font: inherit;
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: 50%;
+        background: none;
+        color: var(--secondary-text-color);
+        cursor: pointer;
+      }
+      .chip button:hover {
+        background: var(--divider-color);
+      }
+      .chips input {
+        width: 92px;
+      }
+      @container (max-width: 700px) {
+        .sizes {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
       @container (max-width: 1000px) {
         .cards {
@@ -52,6 +101,51 @@ export class PvSettingsForm extends LitElement {
     return (v: number) => this.emit({ ...this.config.settings, lifetime: { ...this.config.settings.lifetime, [k]: v } });
   }
 
+  private setSizes(next: ScenarioSizes) {
+    this.emit({ ...this.config.settings, scenarios: normalizeSizes(next, this.config.settings.scenarios) });
+  }
+
+  private sizeEditor(f: Formatters, kind: "pv" | "battery") {
+    const sizes = this.config.settings.scenarios;
+    const key = kind === "pv" ? "pv_sizes_kwp" : "battery_sizes_kwh";
+    const unit = kind === "pv" ? "kWp" : "kWh";
+    const values = sizes[key];
+    const lim = SIZE_LIMITS[kind];
+    const full = values.length >= lim.maxCount;
+    const canRemove = kind === "battery" || values.length > 1;
+    const add = (e: Event) => {
+      const input = e.target as HTMLInputElement;
+      const v = parseNumber(input.value);
+      input.value = "";
+      if (v === null || v < lim.min || v > lim.max) return;
+      this.setSizes({ ...sizes, [key]: [...values, v] });
+    };
+    return html`<div class="stack">
+      <span class="strong">${kind === "pv" ? "Fotovoltaico" : "Batteria"}</span>
+      <div class="chips">
+        ${kind === "battery" ? html`<span class="chip fixed">Nessuna</span>` : nothing}
+        ${values.map(
+          (v) => html`<span class="chip">
+            ${f.num(v)} ${unit}
+            ${canRemove
+              ? html`<button aria-label="Togli ${f.num(v)} ${unit}" @click=${() => this.setSizes({ ...sizes, [key]: values.filter((x) => x !== v) })}>×</button>`
+              : nothing}
+          </span>`,
+        )}
+        ${full
+          ? nothing
+          : html`<input
+              type="text"
+              inputmode="decimal"
+              placeholder="aggiungi ${unit}"
+              aria-label="Aggiungi taglia in ${unit}"
+              @change=${add}
+            />`}
+      </div>
+      <span class="small muted">Da ${f.num(lim.min)} a ${f.num(lim.max)} ${unit}, al massimo ${lim.maxCount} taglie${full ? " (raggiunto)" : ""}.</span>
+    </div>`;
+  }
+
   render() {
     if (!this.config) return nothing;
     const f = formatters(this.locale);
@@ -73,6 +167,12 @@ export class PvSettingsForm extends LitElement {
               ${d.days < 365 ? html`<br /><span class="small muted">Meno di un anno di dati: i mesi mancanti sono stimati.</span>` : nothing}
             </p>`}
         <p class="small muted">Produzione stimata per ${this.config.location.name} (${f.num(this.config.location.latitude, 2)}° N).</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Scenari da confrontare</div>
+        <div class="sizes">${this.sizeEditor(f, "pv")} ${this.sizeEditor(f, "battery")}</div>
+        <p class="small muted" style="margin-top:12px">Sono le righe e le colonne della tabella in Scenari. Ogni taglia in più allunga un po' il calcolo.</p>
       </div>
 
       <div class="cards">

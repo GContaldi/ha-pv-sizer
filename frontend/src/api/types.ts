@@ -31,10 +31,17 @@ export interface Lifetime {
   inverter_year: number;
 }
 
+/** Sizes to compare. "No battery" is always simulated and never listed. */
+export interface ScenarioSizes {
+  pv_sizes_kwp: number[];
+  battery_sizes_kwh: number[];
+}
+
 export interface Settings {
   tariff: Tariff;
   system: SystemCosts;
   lifetime: Lifetime;
+  scenarios: ScenarioSizes;
 }
 
 export interface LoadDef {
@@ -77,8 +84,6 @@ export interface DataInfo {
 /** `pv_sizer/config` and the reply of every update command. */
 export interface PanelConfig {
   location: { name: string; latitude: number; longitude: number };
-  pv_sizes_kwp: number[];
-  battery_sizes_kwh: number[];
   horizon_years: number;
   data: DataInfo;
   settings: Settings;

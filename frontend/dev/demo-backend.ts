@@ -12,6 +12,7 @@ import type {
   Settings,
   UsualTime,
 } from "../src/api/types";
+import { normalizeSizes } from "../src/scenario-sizes";
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 // Typical yield for inland Salerno, south-facing 30°, ~14% losses: ~1,470 kWh/kWp/yr.
@@ -19,8 +20,6 @@ const PV_KWH_PER_KWP = [72, 85, 118, 138, 158, 168, 180, 167, 132, 108, 76, 64];
 const DAY_LENGTH_H = [9.4, 10.5, 11.9, 13.3, 14.5, 15.1, 14.8, 13.8, 12.4, 11.0, 9.8, 9.1];
 const CLEAR_SKY_PROB = [0.45, 0.5, 0.55, 0.6, 0.7, 0.85, 0.92, 0.9, 0.75, 0.6, 0.45, 0.4];
 const DEMO_MONTHLY_KWH = [720, 640, 520, 400, 360, 420, 560, 560, 420, 400, 520, 700];
-const PV_SIZES = [3, 4.5, 6, 7.5, 9];
-const BATTERY_SIZES = [0, 5, 10, 15];
 const HOURS = 8760;
 const HORIZON_YEARS = 25;
 const DST_START_DAY = 86;
@@ -51,7 +50,19 @@ export const DEFAULT_SETTINGS: Settings = {
   tariff: { energy_price: 0.16375, excise: 0.0227, vat_pct: 10, fixed_monthly: 14.17, power_fee: 1.976667, power_kw: 6, export_price: 0.09 },
   system: { cost_per_kwp: 1500, cost_per_kwh: 550, deduction_pct: 50, battery_power_kw: 5, usable_pct: 90, efficiency_pct: 90, export_limit_kw: 6 },
   lifetime: { degradation_pct: 0.5, price_increase_pct: 0, battery_life_years: 12, inverter_cost: 1200, inverter_year: 12 },
+  scenarios: { pv_sizes_kwp: [3, 4.5, 6, 7.5, 9], battery_sizes_kwh: [5, 10, 15] },
 };
+
+function withDefaults(s: Partial<Settings> | undefined): Settings {
+  const d = structuredClone(DEFAULT_SETTINGS);
+  if (!s) return d;
+  return {
+    tariff: { ...d.tariff, ...s.tariff },
+    system: { ...d.system, ...s.system },
+    lifetime: { ...d.lifetime, ...s.lifetime },
+    scenarios: normalizeSizes({ ...d.scenarios, ...s.scenarios }, d.scenarios),
+  };
+}
 
 const SENSOR_OPTIONS = [
   { entity_id: "sensor.demo_lavanderia_energia", name: "Pinza NodOn · lavanderia (demo)" },
@@ -316,8 +327,8 @@ export class DemoBackend {
 
   constructor(private storage: Storage | null = typeof localStorage !== "undefined" ? localStorage : null) {
     const saved = this.storage?.getItem(STORAGE_KEY);
-    const parsed = saved ? (JSON.parse(saved) as { settings: Settings; loads: LoadDef[] }) : null;
-    this.settings = parsed?.settings ?? structuredClone(DEFAULT_SETTINGS);
+    const parsed = saved ? (JSON.parse(saved) as { settings?: Partial<Settings>; loads?: LoadDef[] }) : null;
+    this.settings = withDefaults(parsed?.settings);
     this.loads = parsed?.loads ?? structuredClone(DEFAULT_LOADS);
   }
 
@@ -337,7 +348,7 @@ export class DemoBackend {
       case "pv_sizer/scenario":
         return this.scenario(Number(msg.pv_kwp), Number(msg.battery_kwh), Boolean(msg.shift));
       case "pv_sizer/settings/update":
-        this.settings = msg.settings as Settings;
+        this.settings = withDefaults(msg.settings as Settings);
         this.persist();
         return this.config();
       case "pv_sizer/loads/update":
@@ -352,6 +363,14 @@ export class DemoBackend {
   private persist(): void {
     this.cache = null;
     this.storage?.setItem(STORAGE_KEY, JSON.stringify({ settings: this.settings, loads: this.loads }));
+  }
+
+  private get pvSizes(): number[] {
+    return this.settings.scenarios.pv_sizes_kwp;
+  }
+
+  private get batterySizes(): number[] {
+    return [0, ...this.settings.scenarios.battery_sizes_kwh];
   }
 
   private prices(): Prices {
@@ -379,10 +398,10 @@ export class DemoBackend {
     const base = buildBase(DEMO_MONTHLY_KWH, cfgs);
     const entries = new Map<string, Entry>();
     for (const shift of [false, true]) {
-      for (const k of [0, ...PV_SIZES]) {
+      for (const k of [0, ...this.pvSizes]) {
         const pl = placeCycles(base, cfgs, k, shift, prices);
         const load = buildLoad(base, pl.starts);
-        for (const cap of k === 0 ? [0] : BATTERY_SIZES) {
+        for (const cap of k === 0 ? [0] : this.batterySizes) {
           entries.set(key(k, cap, shift), { sim: simulate(load, base, k, cap, bat), perLoad: pl.perLoad });
         }
       }
@@ -433,8 +452,6 @@ export class DemoBackend {
     });
     return {
       location: { name: "San Cipriano Picentino (SA)", latitude: 40.72, longitude: 14.87 },
-      pv_sizes_kwp: PV_SIZES,
-      battery_sizes_kwh: BATTERY_SIZES,
       horizon_years: HORIZON_YEARS,
       data: {
         source: "demo",
@@ -455,11 +472,11 @@ export class DemoBackend {
   private results(): Results {
     const { entries } = this.computed();
     const cells: CellSummary[] = [];
-    for (const shift of [false, true]) for (const k of PV_SIZES) for (const cap of BATTERY_SIZES) cells.push(this.summary(k, cap, shift).cell);
+    for (const shift of [false, true]) for (const k of this.pvSizes) for (const cap of this.batterySizes) cells.push(this.summary(k, cap, shift).cell);
     return {
       baseline: { annual_kwh: Math.round(entries.get(key(0, 0, false))!.sim.cons), bill_eur: round2(this.baselineBill()) },
       cells,
-      load_savings_by_pv: PV_SIZES.map((k) => {
+      load_savings_by_pv: this.pvSizes.map((k) => {
         const off = entries.get(key(k, 0, false))!.perLoad;
         const on = entries.get(key(k, 0, true))!.perLoad;
         return { pv_kwp: k, by_load: Object.fromEntries(this.loads.map((l, i) => [l.id, round2(off.cost[i] - on.cost[i])])) };
@@ -468,8 +485,9 @@ export class DemoBackend {
   }
 
   private scenario(kwp: number, capIn: number, shift: boolean): ScenarioDetail {
-    const k = kwp > 0 && PV_SIZES.includes(kwp) ? kwp : 0;
-    const cap = k === 0 ? 0 : BATTERY_SIZES.includes(capIn) ? capIn : 0;
+    const nearest = (xs: number[], v: number) => xs.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+    const k = kwp > 0 ? nearest(this.pvSizes, kwp) : 0;
+    const cap = k === 0 ? 0 : nearest(this.batterySizes, capIn);
     const { entries } = this.computed();
     const { sim } = entries.get(key(k, cap, shift))!;
     const { cell, cf } = this.summary(k, cap, shift);
@@ -483,7 +501,7 @@ export class DemoBackend {
       const invYear = Math.round(this.settings.lifetime.inverter_year);
       if (invYear >= 1 && invYear <= HORIZON_YEARS) items.push({ kind: "inverter_replacement", year: invYear, amount_eur: this.settings.lifetime.inverter_cost });
     }
-    const compareCap = cap > 0 ? 0 : 5;
+    const compareCap = cap > 0 ? 0 : (this.batterySizes.find((c) => c >= 5) ?? this.batterySizes[1] ?? null);
     const noPv = entries.get(key(0, 0, false))!.perLoad;
     const off = entries.get(key(k, cap, false))!.perLoad;
     const on = entries.get(key(k, cap, true))!.perLoad;
@@ -517,7 +535,7 @@ export class DemoBackend {
         curtailed: roundArr(sim.mCurt),
       },
       costs: { items, cash_flow_eur: cf.cumulative.map(Math.round) },
-      comparison: k > 0 ? { battery_kwh: compareCap, cash_flow_eur: this.summaryCashFlow(k, compareCap, shift) } : null,
+      comparison: k > 0 && compareCap !== null ? { battery_kwh: compareCap, cash_flow_eur: this.summaryCashFlow(k, compareCap, shift) } : null,
       loads,
       shift_effect_eur: round2(this.summary(k, cap, true).cell.saving_eur - this.summary(k, cap, false).cell.saving_eur),
     };
