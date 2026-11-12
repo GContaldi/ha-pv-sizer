@@ -6,6 +6,7 @@ import { shared } from "./styles";
 import "./components/scenario-grid";
 import "./components/scenario-detail";
 import "./components/loads-editor";
+import "./components/shift-savings";
 import "./components/settings-form";
 
 type Tab = "scenari" | "carichi" | "impostazioni";
@@ -232,7 +233,15 @@ export class PvSizerPanel extends LitElement {
         <span class="small muted">Colore più intenso = migliore per la misura scelta. Clicca una casella per vederne il dettaglio.</span>
       </div>
       ${this.detail
-        ? html`<pv-scenario-detail .detail=${this.detail} .config=${this.config} .locale=${this.locale} .themeKey=${this.themeKey}></pv-scenario-detail>`
+        ? html`<pv-scenario-detail .detail=${this.detail} .config=${this.config} .locale=${this.locale} .themeKey=${this.themeKey}></pv-scenario-detail>
+            <pv-shift-savings
+              .detail=${this.detail}
+              .config=${this.config}
+              .results=${this.results}
+              .locale=${this.locale}
+              .themeKey=${this.themeKey}
+              @navigate=${(e: CustomEvent<Tab>) => (this.tab = e.detail)}
+            ></pv-shift-savings>`
         : nothing}
     `;
   }
@@ -258,16 +267,8 @@ export class PvSizerPanel extends LitElement {
             </div>`
           : nothing}
         ${this.tab === "scenari" ? this.renderScenari() : nothing}
-        ${this.tab === "carichi" && c && this.detail && this.results
-          ? html`<pv-loads-editor
-              .config=${c}
-              .detail=${this.detail}
-              .results=${this.results}
-              .locale=${this.locale}
-              .themeKey=${this.themeKey}
-              @loads-change=${this.onLoads}
-              @navigate=${(e: CustomEvent<Tab>) => (this.tab = e.detail)}
-            ></pv-loads-editor>`
+        ${this.tab === "carichi" && c
+          ? html`<pv-loads-editor .config=${c} .locale=${this.locale} @loads-change=${this.onLoads}></pv-loads-editor>`
           : nothing}
         ${this.tab === "impostazioni" && c
           ? html`<pv-settings-form .config=${c} .locale=${this.locale} @settings-change=${this.onSettings}></pv-settings-form>`
