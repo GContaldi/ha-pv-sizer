@@ -54,19 +54,66 @@ export class PvScenarioGrid extends LitElement {
   static styles = [
     shared,
     css`
+      :host {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .today {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 16px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--divider-color);
+        background: var(--secondary-background-color);
+      }
+      .today .figs {
+        font-variant-numeric: tabular-nums;
+      }
+      .today .why {
+        flex-basis: 100%;
+      }
+      .scroller {
+        overflow-x: auto;
+      }
       .grid {
         display: grid;
         gap: 6px;
       }
+      .corner,
       .head {
-        padding: 0 8px 2px;
+        padding: 0 10px 2px;
+        white-space: nowrap;
+      }
+      .corner {
+        padding-left: 0;
+        align-items: flex-end;
+      }
+      .axis {
+        padding: 0 10px;
+        font-weight: 500;
+        color: var(--secondary-text-color);
+        border-bottom: 1px solid var(--divider-color);
       }
       .rowlabel {
+        position: sticky;
+        left: 0;
+        z-index: 1;
         display: flex;
         align-items: center;
+        background: var(--primary-background-color);
         font-size: 13px;
         font-weight: 500;
         color: var(--secondary-text-color);
+        white-space: nowrap;
       }
       .cell {
         position: relative;
@@ -76,18 +123,18 @@ export class PvScenarioGrid extends LitElement {
         border-radius: 8px;
         border: 1px solid var(--divider-color);
         background: var(--secondary-background-color);
-        cursor: pointer;
-        text-align: left;
-        font: inherit;
-        color: inherit;
       }
-      .cell.disabled {
+      .cell.empty {
         cursor: default;
         background: transparent;
       }
-      .cell.selected {
+      .selected {
+        border-color: var(--primary-color);
+        box-shadow: inset 0 0 0 2px var(--primary-color);
+      }
+      button:focus-visible {
         outline: 2px solid var(--primary-color);
-        outline-offset: -1px;
+        outline-offset: 2px;
       }
       .tint {
         position: absolute;
@@ -97,6 +144,12 @@ export class PvScenarioGrid extends LitElement {
       }
       .content {
         position: relative;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .content > div {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .value {
         font-weight: 500;
@@ -121,43 +174,41 @@ export class PvScenarioGrid extends LitElement {
     };
     const isSel = (k: number, cap: number) => this.selected.pv_kwp === k && this.selected.battery_kwh === cap;
 
+    const base = this.results.baseline;
     return html`
-      <div class="grid" style="grid-template-columns: 110px repeat(${this.batterySizes.length}, minmax(0, 1fr))">
-        <div></div>
-        ${this.batterySizes.map((cap) => html`<div class="head small muted">${cap === 0 ? "Senza batteria" : `Batteria ${cap} kWh`}</div>`)}
+      <button class="today ${isSel(0, 0) ? "selected" : ""}" aria-pressed=${isSel(0, 0)} @click=${() => this.select(0, 0)}>
+        <span class="strong">Oggi, senza FV</span>
+        <span class="figs muted">Bolletta <span class="strong">${f.eur(base.bill_eur)}/anno</span> · consumo <span class="strong">${f.kwh(base.annual_kwh)}</span></span>
+        <span class="why small muted">È il punto di partenza. Senza FV la batteria non serve: con la tariffa monoraria caricarla dalla rete non fa risparmiare.</span>
+      </button>
 
-        <div class="rowlabel">Senza FV</div>
-        ${this.batterySizes.map((cap) =>
-          cap === 0
-            ? html`<button class="cell ${isSel(0, 0) ? "selected" : ""}" @click=${() => this.select(0, 0)}>
-                <div class="value">Oggi</div>
-                <div class="small muted">bolletta ${f.eur(this.results.baseline.bill_eur)}/anno</div>
-              </button>`
-            : html`<div class="cell disabled">
-                <div class="muted">–</div>
-                <div class="small muted">senza FV non si carica</div>
-              </div>`,
-        )}
-        ${this.pvSizes.map(
-          (k) => html`
-            <div class="rowlabel">FV ${f.kwp(k)} kWp</div>
-            ${this.batterySizes.map((cap) => {
-              const c = cells.get(`${k}|${cap}`);
-              if (!c) return html`<div class="cell disabled"></div>`;
-              const v = metricValue(c, this.metric);
-              let t = v !== null && max > min ? (v - min) / (max - min) : 0;
-              if (this.metric === "payback" && v !== null) t = 1 - t;
-              const sub = this.metric === "saving" ? `rientro ${f.years(c.payback_years)}` : `${f.eur(c.saving_eur)}/anno`;
-              return html`<button class="cell ${isSel(k, cap) ? "selected" : ""}" @click=${() => this.select(k, cap)}>
-                ${v !== null ? html`<div class="tint" style="opacity:${0.06 + 0.42 * t}"></div>` : nothing}
-                <div class="content">
-                  <div class="value">${format(v)}</div>
-                  <div class="small muted">${sub}</div>
-                </div>
-              </button>`;
-            })}
-          `,
-        )}
+      <div class="scroller">
+        <div class="grid" style="grid-template-columns: 72px repeat(${this.batterySizes.length}, minmax(120px, 1fr))">
+          <div class="rowlabel"></div>
+          <div class="axis small" style="grid-column: span ${this.batterySizes.length}">Batteria</div>
+          <div class="corner rowlabel small">FV</div>
+          ${this.batterySizes.map((cap) => html`<div class="head small muted">${cap === 0 ? "Nessuna" : `${f.num(cap)} kWh`}</div>`)}
+          ${this.pvSizes.map(
+            (k) => html`
+              <div class="rowlabel">${f.kwp(k)} kWp</div>
+              ${this.batterySizes.map((cap) => {
+                const c = cells.get(`${k}|${cap}`);
+                if (!c) return html`<div class="cell empty"></div>`;
+                const v = metricValue(c, this.metric);
+                let t = v !== null && max > min ? (v - min) / (max - min) : 0;
+                if (this.metric === "payback" && v !== null) t = 1 - t;
+                const sub = this.metric === "saving" ? `rientro ${f.years(c.payback_years)}` : `${f.eur(c.saving_eur)}/anno`;
+                return html`<button class="cell ${isSel(k, cap) ? "selected" : ""}" aria-pressed=${isSel(k, cap)} @click=${() => this.select(k, cap)}>
+                  ${v !== null ? html`<div class="tint" style="opacity:${0.06 + 0.42 * t}"></div>` : nothing}
+                  <div class="content">
+                    <div class="value">${format(v)}</div>
+                    <div class="small muted">${sub}</div>
+                  </div>
+                </button>`;
+              })}
+            `,
+          )}
+        </div>
       </div>
     `;
   }

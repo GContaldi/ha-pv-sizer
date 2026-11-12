@@ -117,6 +117,13 @@ export class PvSizerPanel extends LitElement {
       .demo {
         padding: 6px 12px;
       }
+      .shift {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+        cursor: pointer;
+      }
       :host([narrow]) .tabs {
         margin-left: 8px;
       }
@@ -200,10 +207,12 @@ export class PvSizerPanel extends LitElement {
             (m) => html`<button class="pill ${this.metric === m.key ? "active" : ""}" @click=${() => (this.metric = m.key)}>${m.label}</button>`,
           )}
           <span class="spacer"></span>
-          <span class="small muted">Con spostamento carichi</span>
-          <label class="switch">
-            <input type="checkbox" .checked=${this.shift} @change=${(e: Event) => this.onShift((e.target as HTMLInputElement).checked)} />
-            <span></span>
+          <label class="shift">
+            <span class="small muted">Con spostamento carichi</span>
+            <span class="switch">
+              <input type="checkbox" .checked=${this.shift} @change=${(e: Event) => this.onShift((e.target as HTMLInputElement).checked)} />
+              <span></span>
+            </span>
           </label>
         </div>
         <pv-scenario-grid
@@ -216,10 +225,7 @@ export class PvSizerPanel extends LitElement {
           .locale=${this.locale}
           @scenario-select=${this.onSelect}
         ></pv-scenario-grid>
-        <span class="small muted">
-          Colore più intenso = scenario migliore per la misura scelta. Clicca una casella per il dettaglio. Senza FV la batteria non ha senso: con la tariffa monoraria caricarla
-          dalla rete non fa risparmiare.
-        </span>
+        <span class="small muted">Colore più intenso = migliore per la misura scelta. Clicca una casella per vederne il dettaglio.</span>
       </div>
       ${this.detail
         ? html`<pv-scenario-detail .detail=${this.detail} .config=${this.config} .locale=${this.locale} .themeKey=${this.themeKey}></pv-scenario-detail>`

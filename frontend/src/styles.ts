@@ -164,6 +164,7 @@ export const shared = css`
     color: var(--secondary-text-color);
   }
   .switch {
+    display: inline-block;
     position: relative;
     width: 34px;
     height: 20px;
