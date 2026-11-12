@@ -12,6 +12,7 @@ import type {
   Settings,
   UsualTime,
 } from "../src/api/types";
+import { USUAL_TIME_RANGE, createsLoop } from "../src/loads";
 import { normalizeSizes } from "../src/scenario-sizes";
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -38,14 +39,6 @@ const COOL_SHAPE = normalize([0.3, 0.25, 0.2, 0.2, 0.2, 0.2, 0.2, 0.3, 0.4, 0.6,
 const OTHER_SHAPE = normalize([0.3, 0.2, 0.15, 0.15, 0.15, 0.2, 0.5, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.7, 0.9, 1.2, 1.5, 1.6, 1.5, 1.2, 0.7]);
 const COOK_WEEKDAY = normalize([0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0.15, 0.35, 0, 0, 0, 0, 0, 0.4, 0.5, 0, 0, 0]);
 const COOK_WEEKEND = normalize([0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0.3, 0.5, 0, 0, 0, 0, 0, 0.2, 0.4, 0, 0, 0]);
-const USUAL_TIME_RANGE: Record<UsualTime, [number, number]> = {
-  any: [0, 24],
-  night: [0, 6],
-  morning: [6, 9],
-  afternoon: [13, 17],
-  evening: [18, 23],
-};
-
 export const DEFAULT_SETTINGS: Settings = {
   tariff: { energy_price: 0.16375, excise: 0.0227, vat_pct: 10, fixed_monthly: 14.17, power_fee: 1.976667, power_kw: 6, export_price: 0.09 },
   system: { cost_per_kwp: 1500, cost_per_kwh: 550, deduction_pct: 50, battery_power_kw: 5, usable_pct: 90, efficiency_pct: 90, export_limit_kw: 6 },
@@ -70,6 +63,35 @@ const SENSOR_OPTIONS = [
   { entity_id: "sensor.demo_acs_energia", name: "Daikin Onecta · energia ACS (demo)" },
 ];
 
+/** Spreads `total` starts over 24 hours following `weights`, keeping whole numbers. */
+function histogram(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const exact = weights.map((w) => (total * w) / sum);
+  const out = exact.map(Math.floor);
+  const order = exact.map((v, h) => [v - Math.floor(v), h]).sort((a, b) => b[0] - a[0]);
+  for (let i = 0; i < total - out.reduce((a, b) => a + b, 0); i++) out[order[i][1]]++;
+  return out;
+}
+
+function detectedFor(entity_id: string, cycles: number, kwh: number, hours: number, weights: number[]): LoadDetected {
+  const start_histogram = histogram(cycles, weights);
+  return {
+    entity_id,
+    cycles_per_year: cycles,
+    kwh_per_cycle: kwh,
+    duration_h: hours,
+    usual_start_hour: start_histogram.indexOf(Math.max(...start_histogram)),
+    start_histogram,
+  };
+}
+
+// What the demo sensors "measured" over the last year.
+const DETECTED: LoadDetected[] = [
+  detectedFor("sensor.demo_lavanderia_energia", 209, 0.9, 2, [0, 0, 0, 0, 0, 0, 0, 1, 3, 4, 3, 2, 1, 1, 2, 2, 2, 3, 4, 4, 3, 2, 1, 0]),
+  detectedFor("sensor.demo_lavastoviglie_energia", 248, 1.0, 3, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0, 1, 4, 6, 3, 1]),
+  detectedFor("sensor.demo_acs_energia", 365, 2.4, 2, [0, 0, 0, 0, 0, 1, 5, 7, 3, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
+];
+
 export const DEFAULT_LOADS: LoadDef[] = [
   { id: "lavatrice", name: "Lavatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 0.9, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: null },
   { id: "asciugatrice", name: "Asciugatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.6, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: "lavatrice" },
@@ -79,7 +101,12 @@ export const DEFAULT_LOADS: LoadDef[] = [
 
 type Prices = { grid: number; fixedAnnual: number; rid: number };
 type BatteryCfg = { powerKw: number; usable: number; eff: number; exportLimit: number };
-type LoadCfg = { id: string; kwh: number; hours: number; perWeek: number; usual: UsualTime; shiftable: boolean; ws: number; we: number; after: number };
+type LoadCfg = {
+  id: string; kwh: number; hours: number; perWeek: number; usual: UsualTime;
+  /** Measured start-hour histogram; replaces `usual` when present. */
+  startWeights: number[] | null;
+  shiftable: boolean; ws: number; we: number; after: number;
+};
 type Cycle = { load: number; start: number; hours: number; kw: number; pairOf: number };
 type Base = { load0: Float64Array; pv1: Float64Array; cycles: Cycle[]; monthOfHour: Uint8Array };
 type PerLoad = { cost: number[]; count: number[] };
@@ -101,23 +128,35 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+function pickWeighted(weights: number[], r: number): number {
+  let x = r * weights.reduce((a, b) => a + b, 0);
+  for (let h = 0; h < weights.length; h++) {
+    x -= weights[h];
+    if (x < 0) return h;
+  }
+  return weights.length - 1;
+}
+
 function toLoadCfgs(loads: LoadDef[]): LoadCfg[] {
   return loads.map((l) => {
-    const hours = Math.max(1, Math.min(6, Math.round(l.duration_h)));
+    const det = l.source === "sensor" ? DETECTED.find((d) => d.entity_id === l.sensor_entity_id) : undefined;
+    const hours = Math.max(1, Math.min(6, Math.round(det?.duration_h ?? l.duration_h)));
     let ws = Math.max(0, Math.min(23, Math.round(l.window_start)));
     let we = Math.max(1, Math.min(24, Math.round(l.window_end)));
     if (we - ws < hours) we = Math.min(24, ws + hours);
     if (we - ws < hours) ws = we - hours;
     return {
       id: l.id,
-      kwh: Math.max(0, l.kwh_per_cycle),
+      kwh: Math.max(0, det?.kwh_per_cycle ?? l.kwh_per_cycle),
       hours,
-      perWeek: Math.max(0, Math.min(14, Math.round(l.cycles_per_week))),
+      perWeek: det ? (det.cycles_per_year * 7) / 365 : Math.max(0, Math.min(14, Math.round(l.cycles_per_week))),
       usual: l.usual_time,
+      startWeights: det?.start_histogram ?? null,
       shiftable: l.shiftable,
       ws,
       we,
-      after: l.after ? loads.findIndex((x) => x.id === l.after) : -1,
+      // Every load on a loop of "deve aspettare" runs on its own.
+      after: l.after && !createsLoop(loads, l.id, l.after) ? loads.findIndex((x) => x.id === l.after) : -1,
     };
   });
 }
@@ -170,7 +209,8 @@ function buildBase(monthly: number[], loads: LoadCfg[]): Base {
   }
 
   const cycles: Cycle[] = [];
-  const order = loads.map((_, i) => i).sort((a, b) => (loads[a].after >= 0 ? 1 : 0) - (loads[b].after >= 0 ? 1 : 0));
+  const depth = (i: number): number => (loads[i].after < 0 ? 0 : 1 + depth(loads[i].after));
+  const order = loads.map((_, i) => i).sort((a, b) => depth(a) - depth(b));
   for (let w = 0; w * 7 < 365; w++) {
     const avail = Math.min(7, 365 - w * 7);
     const weekCycles: number[][] = loads.map(() => []);
@@ -183,7 +223,7 @@ function buildBase(monthly: number[], loads: LoadCfg[]): Base {
         [days[i], days[j]] = [days[j], days[i]];
       }
       const [from, to] = USUAL_TIME_RANGE[l.usual];
-      const anchors = l.after >= 0 && l.after !== li ? weekCycles[l.after] : [];
+      const anchors = l.after >= 0 ? weekCycles[l.after] : [];
       const n = Math.round((l.perWeek * avail) / 7);
       for (let i = 0; i < n; i++) {
         let start: number;
@@ -193,7 +233,8 @@ function buildBase(monthly: number[], loads: LoadCfg[]): Base {
           start = a.start + a.hours + (rng() < 0.5 ? 0 : 1);
           pairOf = anchors[i];
         } else {
-          start = (w * 7 + days[i % avail]) * 24 + from + Math.floor(rng() * (to - from));
+          const hour = l.startWeights ? pickWeighted(l.startWeights, rng()) : from + Math.floor(rng() * (to - from));
+          start = (w * 7 + days[i % avail]) * 24 + hour;
         }
         weekCycles[li].push(cycles.length);
         cycles.push({ load: li, start: Math.min(start, HOURS - l.hours), hours: l.hours, kw: l.kwh / l.hours, pairOf });
@@ -443,17 +484,7 @@ export class DemoBackend {
   }
 
   private config(): PanelConfig {
-    const { base, entries, prices } = this.computed();
-    const detected: LoadDetected[] = this.loads.map((l, li) => {
-      const hours = new Array<number>(24).fill(0);
-      let count = 0;
-      for (const c of base.cycles) {
-        if (c.load !== li) continue;
-        count++;
-        hours[c.start % 24]++;
-      }
-      return { load_id: l.id, cycles_per_year: count, kwh_per_cycle: l.kwh_per_cycle, duration_h: l.duration_h, usual_start_hour: hours.indexOf(Math.max(...hours)) };
-    });
+    const { entries, prices } = this.computed();
     return {
       location: { name: "San Cipriano Picentino (SA)", latitude: 40.72, longitude: 14.87 },
       horizon_years: HORIZON_YEARS,
@@ -467,7 +498,7 @@ export class DemoBackend {
       },
       settings: this.settings,
       loads: this.loads,
-      detected,
+      detected: DETECTED,
       sensor_options: SENSOR_OPTIONS,
       derived: { grid_price_eur_kwh: prices.grid, fixed_annual_eur: round2(prices.fixedAnnual) },
     };

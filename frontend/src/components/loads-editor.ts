@@ -205,7 +205,7 @@ export class PvLoadsEditor extends LitElement {
   }
 
   private renderSensorFields(f: Formatters, l: LoadDef) {
-    const det = l.sensor_entity_id ? this.config.detected.find((d) => d.load_id === l.id) : undefined;
+    const det = l.sensor_entity_id ? this.config.detected.find((d) => d.entity_id === l.sensor_entity_id) : undefined;
     return html`
       ${selectField(
         "Sensore",
@@ -235,7 +235,7 @@ export class PvLoadsEditor extends LitElement {
   }
 
   private renderLoad(f: Formatters, l: LoadDef, index: number) {
-    const det = l.sensor_entity_id ? this.config.detected.find((d) => d.load_id === l.id) : undefined;
+    const det = l.sensor_entity_id ? this.config.detected.find((d) => d.entity_id === l.sensor_entity_id) : undefined;
     const missingSensor = l.source === "sensor" && !l.sensor_entity_id;
     const meta =
       l.source === "sensor"

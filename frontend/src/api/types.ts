@@ -1,6 +1,7 @@
 // WebSocket contract between the panel and the pv_sizer integration.
 // Energy in kWh, money in EUR, ratios 0..1, hours 0..24 local time.
 
+/** Start bands: night 0–6, morning 6–12, afternoon 12–18, evening 18–24. */
 export type UsualTime = "any" | "night" | "morning" | "afternoon" | "evening";
 
 export interface Tariff {
@@ -59,12 +60,15 @@ export interface LoadDef {
   after: string | null;
 }
 
+/** Cycles found in the history of one sensor option; loads with source "sensor" use these. */
 export interface LoadDetected {
-  load_id: string;
+  entity_id: string;
   cycles_per_year: number;
   kwh_per_cycle: number;
   duration_h: number;
   usual_start_hour: number;
+  /** Cycle starts per local hour over the last 12 months. */
+  start_histogram: number[];
 }
 
 export interface SensorOption {
