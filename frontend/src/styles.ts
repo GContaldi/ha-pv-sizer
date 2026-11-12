@@ -146,20 +146,49 @@ export const shared = css`
   .field {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-height: 32px;
+    gap: 16px;
+    min-height: 52px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--divider-color);
+    box-sizing: border-box;
+  }
+  .field:last-child {
+    border-bottom: none;
+  }
+  .field-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .field-label {
-    flex: 1;
-    font-size: 13px;
+    font-size: 14px;
+  }
+  .field-hint {
+    font-size: 12px;
+    line-height: 16px;
     color: var(--secondary-text-color);
   }
-  .field input[type="text"] {
-    width: 84px;
+  .field-control {
+    flex: none;
+    width: 180px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .field-control input[type="text"] {
+    flex: 1;
+    min-width: 0;
     text-align: right;
   }
+  .field-control select {
+    flex: 1;
+    min-width: 0;
+  }
   .field-suffix {
-    width: 72px;
+    flex: none;
+    width: 64px;
     font-size: 12px;
     color: var(--secondary-text-color);
   }

@@ -64,7 +64,7 @@ export class PvShiftSavings extends LitElement {
   ];
 
   private goToLoads() {
-    this.dispatchEvent(new CustomEvent("navigate", { detail: "carichi", bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent("navigate", { detail: "impostazioni/carichi", bubbles: true, composed: true }));
   }
 
   render() {

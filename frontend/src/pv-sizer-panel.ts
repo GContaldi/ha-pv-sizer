@@ -5,23 +5,28 @@ import { METRICS, type MetricKey, type Selection } from "./components/scenario-g
 import { shared } from "./styles";
 import "./components/scenario-grid";
 import "./components/scenario-detail";
-import "./components/loads-editor";
 import "./components/shift-savings";
-import "./components/settings-form";
+import "./components/settings-page";
 
-type Tab = "scenari" | "carichi" | "impostazioni";
+type Tab = "scenari" | "impostazioni";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "scenari", label: "Scenari" },
-  { key: "carichi", label: "Carichi" },
   { key: "impostazioni", label: "Impostazioni" },
 ];
+
+/** `#impostazioni/carichi` → tab + section to scroll to. */
+function readRoute(): { tab: Tab; section?: string } {
+  const [tab, section] = location.hash.replace(/^#/, "").split("/");
+  return tab === "impostazioni" ? { tab, section: section || undefined } : { tab: "scenari" };
+}
 
 export class PvSizerPanel extends LitElement {
   static properties = {
     hass: { attribute: false },
     narrow: { type: Boolean, reflect: true },
     tab: { state: true },
+    section: { state: true },
     config: { state: true },
     results: { state: true },
     detail: { state: true },
@@ -35,6 +40,7 @@ export class PvSizerPanel extends LitElement {
   declare hass?: HomeAssistant;
   declare narrow: boolean;
   declare tab: Tab;
+  declare section?: string;
   declare config?: PanelConfig;
   declare results?: Results;
   declare detail?: ScenarioDetail;
@@ -50,12 +56,34 @@ export class PvSizerPanel extends LitElement {
   constructor() {
     super();
     this.narrow = false;
-    this.tab = "scenari";
     this.metric = "saving";
     this.shift = false;
     this.selected = { pv_kwp: 6, battery_kwh: 5 };
     this.busy = false;
     this.themeKey = "";
+    this.onRoute();
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener("hashchange", this.onRoute);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    window.removeEventListener("hashchange", this.onRoute);
+  }
+
+  private onRoute = () => {
+    const { tab, section } = readRoute();
+    this.tab = tab;
+    this.section = section;
+  };
+
+  /** Writing the hash adds a history entry, so the browser Back button returns here. */
+  private go(route: string) {
+    if (location.hash === `#${route}`) this.onRoute();
+    else location.hash = route;
   }
 
   static styles = [
@@ -93,14 +121,21 @@ export class PvSizerPanel extends LitElement {
         opacity: 0.7;
         background: none;
         border: none;
-        border-bottom: 2px solid transparent;
+        border-top: 3px solid transparent;
+        border-bottom: 3px solid transparent;
         height: 56px;
-        padding: 0 12px;
+        padding: 0 16px;
         cursor: pointer;
       }
       .tab.active {
         opacity: 1;
-        border-bottom-color: currentColor;
+        font-weight: 500;
+        border-bottom-color: var(--app-header-selection-bar-color, currentColor);
+      }
+      .tab:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: -6px;
+        border-radius: 8px;
       }
       .busy {
         font-size: 12px;
@@ -240,7 +275,7 @@ export class PvSizerPanel extends LitElement {
               .results=${this.results}
               .locale=${this.locale}
               .themeKey=${this.themeKey}
-              @navigate=${(e: CustomEvent<Tab>) => (this.tab = e.detail)}
+              @navigate=${(e: CustomEvent<string>) => this.go(e.detail)}
             ></pv-shift-savings>`
         : nothing}
     `;
@@ -253,7 +288,12 @@ export class PvSizerPanel extends LitElement {
         <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
         <div class="title">Fotovoltaico</div>
         <nav class="tabs">
-          ${TABS.map((t) => html`<button class="tab ${this.tab === t.key ? "active" : ""}" @click=${() => (this.tab = t.key)}>${t.label}</button>`)}
+          ${TABS.map(
+            (t) =>
+              html`<button class="tab ${this.tab === t.key ? "active" : ""}" aria-current=${this.tab === t.key ? "page" : "false"} @click=${() => this.go(t.key)}>
+                ${t.label}
+              </button>`,
+          )}
         </nav>
         <span class="spacer"></span>
         ${this.busy ? html`<span class="busy">Calcolo…</span>` : nothing}
@@ -267,11 +307,14 @@ export class PvSizerPanel extends LitElement {
             </div>`
           : nothing}
         ${this.tab === "scenari" ? this.renderScenari() : nothing}
-        ${this.tab === "carichi" && c
-          ? html`<pv-loads-editor .config=${c} .locale=${this.locale} @loads-change=${this.onLoads}></pv-loads-editor>`
-          : nothing}
         ${this.tab === "impostazioni" && c
-          ? html`<pv-settings-form .config=${c} .locale=${this.locale} @settings-change=${this.onSettings}></pv-settings-form>`
+          ? html`<pv-settings-page
+              .config=${c}
+              .locale=${this.locale}
+              .section=${this.section}
+              @settings-change=${this.onSettings}
+              @loads-change=${this.onLoads}
+            ></pv-settings-page>`
           : nothing}
       </main>
     `;
