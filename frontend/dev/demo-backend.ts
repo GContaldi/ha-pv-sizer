@@ -2,17 +2,22 @@
 // WebSocket contract in src/api/types.ts on synthetic data; never bundled.
 import type {
   CellSummary,
+  ConsumptionSettings,
   CostItem,
+  CycleLoad,
+  DataInfo,
+  HourProfile,
   LoadDef,
   LoadDetected,
   LoadValue,
   PanelConfig,
   Results,
   ScenarioDetail,
+  SeasonalProfile,
   Settings,
   UsualTime,
 } from "../src/api/types";
-import { USUAL_TIME_RANGE, createsLoop } from "../src/loads";
+import { USUAL_TIME_RANGE, continuousUsage, createsLoop, effectiveUsage } from "../src/loads";
 import { normalizeSizes } from "../src/scenario-sizes";
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -20,7 +25,6 @@ const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const PV_KWH_PER_KWP = [72, 85, 118, 138, 158, 168, 180, 167, 132, 108, 76, 64];
 const DAY_LENGTH_H = [9.4, 10.5, 11.9, 13.3, 14.5, 15.1, 14.8, 13.8, 12.4, 11.0, 9.8, 9.1];
 const CLEAR_SKY_PROB = [0.45, 0.5, 0.55, 0.6, 0.7, 0.85, 0.92, 0.9, 0.75, 0.6, 0.45, 0.4];
-const DEMO_MONTHLY_KWH = [720, 640, 520, 400, 360, 420, 560, 560, 420, 400, 520, 700];
 const HOURS = 8760;
 const HORIZON_YEARS = 25;
 const DST_START_DAY = 86;
@@ -39,11 +43,21 @@ const COOL_SHAPE = normalize([0.3, 0.25, 0.2, 0.2, 0.2, 0.2, 0.2, 0.3, 0.4, 0.6,
 const OTHER_SHAPE = normalize([0.3, 0.2, 0.15, 0.15, 0.15, 0.2, 0.5, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.7, 0.9, 1.2, 1.5, 1.6, 1.5, 1.2, 0.7]);
 const COOK_WEEKDAY = normalize([0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0.15, 0.35, 0, 0, 0, 0, 0, 0.4, 0.5, 0, 0, 0]);
 const COOK_WEEKEND = normalize([0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0.3, 0.5, 0, 0, 0, 0, 0, 0.2, 0.4, 0, 0, 0]);
+const HOUR_SHAPES: Record<HourProfile, number[]> = { flat: new Array<number>(24).fill(1 / 24), heating: HEAT_SHAPE, cooling: COOL_SHAPE };
+
+/** Share of the yearly total per month. */
+const SEASONAL_PROFILES: Record<SeasonalProfile, number[]> = {
+  pdc_heating: normalize([720, 640, 520, 400, 340, 320, 340, 340, 340, 400, 520, 700]),
+  pdc_heating_cooling: normalize([720, 640, 520, 400, 360, 420, 560, 560, 420, 400, 520, 700]),
+  no_pdc: normalize([560, 500, 510, 470, 450, 450, 480, 470, 450, 470, 500, 560]),
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   tariff: { energy_price: 0.16375, excise: 0.0227, vat_pct: 10, fixed_monthly: 14.17, power_fee: 1.976667, power_kw: 6, export_price: 0.09 },
   system: { cost_per_kwp: 1500, cost_per_kwh: 550, deduction_pct: 50, battery_power_kw: 5, usable_pct: 90, efficiency_pct: 90, export_limit_kw: 6 },
   lifetime: { degradation_pct: 0.5, price_increase_pct: 0, battery_life_years: 12, inverter_cost: 1200, inverter_year: 12 },
   scenarios: { pv_sizes_kwp: [3, 4.5, 6, 7.5, 9], battery_sizes_kwh: [5, 10, 15] },
+  consumption: { meter_entity_id: null, annual_kwh: 6200, seasonal_profile: "pdc_heating" },
 };
 
 function withDefaults(s: Partial<Settings> | undefined): Settings {
@@ -54,13 +68,80 @@ function withDefaults(s: Partial<Settings> | undefined): Settings {
     system: { ...d.system, ...s.system },
     lifetime: { ...d.lifetime, ...s.lifetime },
     scenarios: normalizeSizes({ ...d.scenarios, ...s.scenarios }, d.scenarios),
+    consumption: { ...d.consumption, ...s.consumption },
   };
+}
+
+/** Saved loads from before continuous loads existed are all cycle loads. */
+function migrateLoads(loads: unknown): LoadDef[] | null {
+  if (!Array.isArray(loads)) return null;
+  return loads.map((l: LoadDef) => ("kind" in l ? l : { ...(l as object), kind: "cycle" }) as LoadDef);
+}
+
+// Whole-house meters; the first one is the grid import of the Energy dashboard.
+const METER_OPTIONS = [
+  { entity_id: "sensor.demo_casa_energia", name: "Prelievo dalla rete (demo)" },
+  { entity_id: "sensor.demo_contatore_anno", name: "Contatore, un anno (demo)" },
+];
+
+type MeterHistory = { from: string; to: string; days: number; daysByMonth: number[]; kwhByMonth: number[] };
+
+// What the house really uses; the demo meters measure slices of it.
+const DEMO_TRUE_MONTHLY = [760, 660, 540, 410, 350, 400, 520, 530, 410, 410, 560, 740];
+const meterHistory = (from: string, to: string, daysByMonth: number[]): MeterHistory => ({
+  from,
+  to,
+  days: daysByMonth.reduce((a, b) => a + b, 0),
+  daysByMonth,
+  kwhByMonth: DEMO_TRUE_MONTHLY.map((kwh, m) => (kwh * daysByMonth[m]) / DAYS_IN_MONTH[m]),
+});
+const METERS: Record<string, MeterHistory> = {
+  "sensor.demo_casa_energia": meterHistory("2026-09-26", "2026-11-11", [0, 0, 0, 0, 0, 0, 0, 0, 5, 31, 11, 0]),
+  "sensor.demo_contatore_anno": meterHistory("2025-11-12", "2026-11-11", DAYS_IN_MONTH),
+};
+
+const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+
+/** Monthly totals from meter history and bill: history wins; the estimate fills the unmeasured part of each month. */
+function blendConsumption(c: ConsumptionSettings): { info: Omit<DataInfo, "loads_exceed_months">; monthly: number[] | null } {
+  const weights = SEASONAL_PROFILES[c.seasonal_profile] ?? SEASONAL_PROFILES.pdc_heating;
+  const found = c.meter_entity_id ? METERS[c.meter_entity_id] : undefined;
+  const meter = found && found.days > 0 ? found : undefined;
+  const annual = c.annual_kwh !== null && c.annual_kwh > 0 ? c.annual_kwh : null;
+  const coverage = meter ? { from: meter.from, to: meter.to, days: meter.days } : { from: null, to: null, days: 0 };
+  const pattern_source = meter && meter.days >= 14 ? ("sensor" as const) : ("profile" as const);
+  const zeros = new Array<number>(12).fill(0);
+  const result = (source: DataInfo["source"], monthly: number[], measuredKwh: number[], warning: DataInfo["warning"] = null) => ({
+    info: {
+      source,
+      ...coverage,
+      annual_kwh: Math.round(sum(monthly)),
+      months: monthly.map((kwh, m) => ({ kwh: Math.round(kwh), measured_share: kwh > 0 ? round2(Math.min(1, measuredKwh[m] / kwh)) : 0 })),
+      pattern_source,
+      warning,
+    },
+    monthly,
+  });
+
+  if (!meter && annual === null) return { ...result("missing", zeros, zeros), monthly: null };
+  if (!meter) return result("estimate", weights.map((w) => w * annual!), zeros);
+  const share = meter.daysByMonth.map((d, m) => Math.min(1, d / DAYS_IN_MONTH[m]));
+  if (meter.days >= 365) return result("measured", meter.kwhByMonth, meter.kwhByMonth);
+  const measured = sum(meter.kwhByMonth);
+  // Full-month estimates, scaled so that measured + unmeasured parts add up to the bill, or projected from the measured months.
+  const estimate =
+    annual !== null
+      ? weights.map((w) => (Math.max(0, annual - measured) * w) / sum(weights.map((x, m) => x * (1 - share[m]))))
+      : weights.map((w) => (measured * w) / sum(weights.map((x, m) => x * share[m])));
+  const monthly = meter.kwhByMonth.map((kwh, m) => kwh + (1 - share[m]) * estimate[m]);
+  return result("mixed", monthly, meter.kwhByMonth, annual !== null && measured > annual ? "measured_exceeds_annual" : null);
 }
 
 const SENSOR_OPTIONS = [
   { entity_id: "sensor.demo_lavanderia_energia", name: "Pinza NodOn · lavanderia (demo)" },
   { entity_id: "sensor.demo_lavastoviglie_energia", name: "Presa smart · lavastoviglie (demo)" },
   { entity_id: "sensor.demo_acs_energia", name: "Daikin Onecta · energia ACS (demo)" },
+  { entity_id: "sensor.demo_pdc_energia", name: "Daikin Onecta · energia riscaldamento (demo)" },
 ];
 
 /** Spreads `total` starts over 24 hours following `weights`, keeping whole numbers. */
@@ -90,25 +171,50 @@ const DETECTED: LoadDetected[] = [
   detectedFor("sensor.demo_lavanderia_energia", 209, 0.9, 2, [0, 0, 0, 0, 0, 0, 0, 1, 3, 4, 3, 2, 1, 1, 2, 2, 2, 3, 4, 4, 3, 2, 1, 0]),
   detectedFor("sensor.demo_lavastoviglie_energia", 248, 1.0, 3, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0, 1, 4, 6, 3, 1]),
   detectedFor("sensor.demo_acs_energia", 365, 2.4, 2, [0, 0, 0, 0, 0, 1, 5, 7, 3, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
+  {
+    entity_id: "sensor.demo_pdc_energia",
+    cycles_per_year: 0,
+    kwh_per_cycle: 0,
+    duration_h: 0,
+    usual_start_hour: 0,
+    start_histogram: new Array<number>(24).fill(0),
+    continuous: { kwh_per_day_by_month: [14.5, 12.8, 8.6, 3.2, 0, 0, 0, 0, 0, 2.1, 7.9, 13.6], hour_profile: HEAT_SHAPE.map((v) => Math.round(v * 1000) / 1000) },
+  },
 ];
 
 export const DEFAULT_LOADS: LoadDef[] = [
-  { id: "lavatrice", name: "Lavatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 0.9, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: null },
-  { id: "asciugatrice", name: "Asciugatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.6, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: "lavatrice" },
-  { id: "lavastoviglie", name: "Lavastoviglie", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.0, duration_h: 3, cycles_per_week: 5, usual_time: "evening", shiftable: true, window_start: 9, window_end: 18, after: null },
-  { id: "acs", name: "Acqua calda (PDC)", source: "sensor", sensor_entity_id: "sensor.demo_acs_energia", kwh_per_cycle: 2.4, duration_h: 2, cycles_per_week: 7, usual_time: "morning", shiftable: true, window_start: 10, window_end: 16, after: null },
+  { id: "lavatrice", kind: "cycle", name: "Lavatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 0.9, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: null },
+  { id: "asciugatrice", kind: "cycle", name: "Asciugatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.6, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: "lavatrice" },
+  { id: "lavastoviglie", kind: "cycle", name: "Lavastoviglie", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.0, duration_h: 3, cycles_per_week: 5, usual_time: "evening", shiftable: true, window_start: 9, window_end: 18, after: null },
+  { id: "acs", kind: "cycle", name: "Acqua calda (PDC)", source: "sensor", sensor_entity_id: "sensor.demo_acs_energia", kwh_per_cycle: 2.4, duration_h: 2, cycles_per_week: 7, usual_time: "morning", shiftable: true, window_start: 10, window_end: 16, after: null },
+  { id: "pdc_riscaldamento", kind: "continuous", name: "PDC riscaldamento", source: "estimate", sensor_entity_id: null, kwh_per_day: 12, months: [11, 12, 1, 2, 3], hour_profile: "heating", shiftable: true, shift_share: 0.3, shift_advance_h: 3 },
 ];
 
 type Prices = { grid: number; fixedAnnual: number; rid: number };
 type BatteryCfg = { powerKw: number; usable: number; eff: number; exportLimit: number };
-type LoadCfg = {
-  id: string; kwh: number; hours: number; perWeek: number; usual: UsualTime;
+/** `idx` is the position in the load list, used for per-load costs. */
+type CycleCfg = {
+  idx: number; kwh: number; hours: number; perWeek: number; usual: UsualTime;
   /** Measured start-hour histogram; replaces `usual` when present. */
   startWeights: number[] | null;
-  shiftable: boolean; ws: number; we: number; after: number;
+  shiftable: boolean; ws: number; we: number;
+  /** Index in the cycle list. */
+  after: number;
+};
+type ContCfg = {
+  idx: number; kwhByMonth: number[]; hourWeights: number[];
+  /** Colder or hotter days draw more. */
+  weather: boolean;
+  shiftable: boolean; share: number; advance: number;
 };
 type Cycle = { load: number; start: number; hours: number; kw: number; pairOf: number };
-type Base = { load0: Float64Array; pv1: Float64Array; cycles: Cycle[]; monthOfHour: Uint8Array };
+type Base = {
+  load0: Float64Array; pv1: Float64Array; cycles: Cycle[]; monthOfHour: Uint8Array;
+  /** Hourly draw of each continuous load at the usual times, and its active days. */
+  conts: Float64Array[]; contDays: number[];
+  /** Months where loads exceeded the month's total and continuous loads were cut back. */
+  exceed: number[];
+};
 type PerLoad = { cost: number[]; count: number[] };
 type Sim = {
   cons: number; pv: number; imp: number; exp: number; curt: number; pvSelf: number;
@@ -137,35 +243,57 @@ function pickWeighted(weights: number[], r: number): number {
   return weights.length - 1;
 }
 
-function toLoadCfgs(loads: LoadDef[]): LoadCfg[] {
-  return loads.map((l) => {
-    const det = l.source === "sensor" ? DETECTED.find((d) => d.entity_id === l.sensor_entity_id) : undefined;
-    const hours = Math.max(1, Math.min(6, Math.round(det?.duration_h ?? l.duration_h)));
-    let ws = Math.max(0, Math.min(23, Math.round(l.window_start)));
-    let we = Math.max(1, Math.min(24, Math.round(l.window_end)));
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+function toLoadCfgs(loads: LoadDef[]): { cycles: CycleCfg[]; conts: ContCfg[] } {
+  const cycleLoads = loads.filter((l): l is CycleLoad => l.kind === "cycle");
+  const cycles = cycleLoads.map((l): CycleCfg => {
+    const use = effectiveUsage(l, DETECTED);
+    const hours = clamp(Math.round(use.hours), 1, 6);
+    let ws = clamp(Math.round(l.window_start), 0, 23);
+    let we = clamp(Math.round(l.window_end), 1, 24);
     if (we - ws < hours) we = Math.min(24, ws + hours);
     if (we - ws < hours) ws = we - hours;
     return {
-      id: l.id,
-      kwh: Math.max(0, det?.kwh_per_cycle ?? l.kwh_per_cycle),
+      idx: loads.indexOf(l),
+      kwh: Math.max(0, use.kwh),
       hours,
-      perWeek: det ? (det.cycles_per_year * 7) / 365 : Math.max(0, Math.min(14, Math.round(l.cycles_per_week))),
+      perWeek: use.measured ? use.perWeek : clamp(Math.round(use.perWeek), 0, 14),
       usual: l.usual_time,
-      startWeights: det?.start_histogram ?? null,
+      startWeights: use.measured?.start_histogram ?? null,
       shiftable: l.shiftable,
       ws,
       we,
-      // Every load on a loop of "deve aspettare" runs on its own.
-      after: l.after && !createsLoop(loads, l.id, l.after) ? loads.findIndex((x) => x.id === l.after) : -1,
+      // Every load on a loop of "deve aspettare", or waiting for a continuous load, runs on its own.
+      after: l.after && !createsLoop(loads, l.id, l.after) ? cycleLoads.findIndex((x) => x.id === l.after) : -1,
     };
   });
+  const conts = loads.flatMap((l, idx): ContCfg[] => {
+    if (l.kind !== "continuous") return [];
+    const use = continuousUsage(l, DETECTED);
+    return [
+      {
+        idx,
+        kwhByMonth: use.kwhByMonth.map((v) => Math.max(0, v)),
+        hourWeights: normalize(use.measured?.hour_profile ?? HOUR_SHAPES[l.hour_profile] ?? HOUR_SHAPES.flat),
+        weather: use.measured !== undefined || l.hour_profile !== "flat",
+        shiftable: l.shiftable,
+        share: clamp(l.shift_share, 0, 0.5),
+        advance: clamp(Math.round(l.shift_advance_h), 1, 4),
+      },
+    ];
+  });
+  return { cycles, conts };
 }
 
-function buildBase(monthly: number[], loads: LoadCfg[]): Base {
+function buildBase(monthly: number[], loads: CycleCfg[], conts: ContCfg[]): Base {
   const rng = mulberry32(40721487);
   const load0 = new Float64Array(HOURS);
   const pv1 = new Float64Array(HOURS);
   const monthOfHour = new Uint8Array(HOURS);
+  const contSeries = conts.map(() => new Float64Array(HOURS));
+  const contDays = conts.map(() => 0);
+  const exceed: number[] = [];
   const loadsPerDay = loads.reduce((a, l) => a + (l.kwh * l.perWeek) / 7, 0);
   let day = 0;
   for (let m = 0; m < 12; m++) {
@@ -177,12 +305,23 @@ function buildBase(monthly: number[], loads: LoadCfg[]): Base {
     const hvacW = cloud.map((c) => (cooling ? 0.5 + (c > 1 ? 0.7 : 0) + 0.4 * rng() : 1 + (c < 0.8 ? 0.5 : 0) + 0.4 * rng()));
     const sumW = hvacW.reduce((a, b) => a + b, 0);
     const nonHvacDay = BASE_KW * 24 + COOKING_KWH_DAY + OTHER_KWH_DAY;
-    let hvacMonth = monthly[m] - loadsPerDay * days - nonHvacDay * days;
+    const cycleMonth = loadsPerDay * days;
+    const contMonth = conts.reduce((a, c) => a + c.kwhByMonth[m] * days, 0);
+    let contScale = 1;
+    if (contMonth > 0 && cycleMonth + contMonth > monthly[m] + 0.5) {
+      contScale = Math.max(0, monthly[m] - cycleMonth) / contMonth;
+      exceed.push(m);
+    }
+    const rest = monthly[m] - cycleMonth - contMonth * contScale;
+    let hvacMonth = rest - nonHvacDay * days;
     let scale = 1;
     if (hvacMonth < 0) {
-      scale = Math.max(0, monthly[m] - loadsPerDay * days) / (nonHvacDay * days);
+      scale = Math.max(0, rest) / (nonHvacDay * days);
       hvacMonth = 0;
     }
+    conts.forEach((c, ci) => {
+      if (c.kwhByMonth[m] * contScale > 0) contDays[ci] += days;
+    });
     const hvacShape = cooling ? COOL_SHAPE : HEAT_SHAPE;
     for (let i = 0; i < days; i++, day++) {
       const dst = day >= DST_START_DAY && day < DST_END_DAY;
@@ -199,11 +338,13 @@ function buildBase(monthly: number[], loads: LoadCfg[]): Base {
         pvSum += v;
       }
       const hvacDay = (hvacMonth * hvacW[i]) / sumW;
+      const contDay = conts.map((c) => c.kwhByMonth[m] * contScale * (c.weather ? (hvacW[i] * days) / sumW : 1));
       for (let h = 0; h < 24; h++) {
         const idx = day * 24 + h;
         monthOfHour[idx] = m;
         pv1[idx] = pvSum > 0 ? (pvDay * shape[h]) / pvSum : 0;
         load0[idx] = scale * (BASE_KW + cook[h] * COOKING_KWH_DAY + OTHER_SHAPE[h] * OTHER_KWH_DAY) + hvacDay * hvacShape[h];
+        conts.forEach((c, ci) => (contSeries[ci][idx] = contDay[ci] * c.hourWeights[h]));
       }
     }
   }
@@ -241,15 +382,12 @@ function buildBase(monthly: number[], loads: LoadCfg[]): Base {
       }
     }
   }
-  return { load0, pv1, cycles, monthOfHour };
+  return { load0, pv1, cycles, monthOfHour, conts: contSeries, contDays, exceed };
 }
 
-function placeCycles(base: Base, loads: LoadCfg[], kwp: number, shift: boolean, prices: Prices) {
-  const { cycles, load0, pv1 } = base;
-  const sur = new Float64Array(HOURS);
-  for (let i = 0; i < HOURS; i++) sur[i] = kwp * pv1[i] - load0[i];
+function placeCycles(base: Base, loads: CycleCfg[], sur: Float64Array, load: Float64Array, optimize: boolean, prices: Prices, perLoad: PerLoad) {
+  const { cycles } = base;
   const starts = new Int32Array(cycles.length);
-  const perLoad: PerLoad = { cost: loads.map(() => 0), count: loads.map(() => 0) };
   const cost = (abs: number, c: Cycle) => {
     let t = 0;
     for (let j = 0; j < c.hours; j++) {
@@ -259,7 +397,6 @@ function placeCycles(base: Base, loads: LoadCfg[], kwp: number, shift: boolean, 
     }
     return t;
   };
-  const optimize = shift && kwp > 0;
   cycles.forEach((c, i) => {
     const l = loads[c.load];
     const anchor = c.pairOf >= 0 ? cycles[c.pairOf] : null;
@@ -284,20 +421,59 @@ function placeCycles(base: Base, loads: LoadCfg[], kwp: number, shift: boolean, 
       }
     }
     best = Math.max(0, Math.min(best, HOURS - c.hours));
+    perLoad.cost[l.idx] += cost(best, c);
+    perLoad.count[l.idx] += 1;
     starts[i] = best;
-    perLoad.cost[c.load] += cost(best, c);
-    perLoad.count[c.load] += 1;
-    for (let j = 0; j < c.hours; j++) sur[best + j] -= c.kw;
+    for (let j = 0; j < c.hours; j++) {
+      sur[best + j] -= c.kw;
+      load[best + j] += c.kw;
+    }
   });
-  return { starts, perLoad };
+  return { load, perLoad };
 }
 
-function buildLoad(base: Base, starts: Int32Array): Float64Array {
-  const load = Float64Array.from(base.load0);
-  base.cycles.forEach((c, i) => {
-    for (let j = 0; j < c.hours; j++) load[starts[i] + j] += c.kw;
+/**
+ * Continuous loads go first: each hour not covered by PV can move up to `share` of its
+ * draw to the `advance` hours before it (same day) where PV is left over.
+ */
+function placeConts(base: Base, conts: ContCfg[], sur: Float64Array, load: Float64Array, optimize: boolean, prices: Prices, perLoad: PerLoad) {
+  base.conts.forEach((usual, ci) => {
+    const c = conts[ci];
+    const s = Float64Array.from(usual);
+    if (optimize && c.shiftable && c.share > 0) {
+      for (let i = 0; i < HOURS; i++) {
+        let movable = Math.min(c.share * usual[i], s[i] - Math.min(s[i], Math.max(0, sur[i])));
+        for (let j = i - 1; j >= Math.max(i - (i % 24), i - c.advance) && movable > 1e-9; j--) {
+          const spare = sur[j] - s[j];
+          if (spare <= 0) continue;
+          const take = Math.min(movable, spare);
+          s[j] += take;
+          s[i] -= take;
+          movable -= take;
+        }
+      }
+    }
+    let cost = 0;
+    for (let i = 0; i < HOURS; i++) {
+      const fromPv = Math.min(s[i], Math.max(0, sur[i]));
+      cost += fromPv * prices.rid + (s[i] - fromPv) * prices.grid;
+      sur[i] -= s[i];
+      load[i] += s[i];
+    }
+    perLoad.cost[c.idx] += cost;
+    perLoad.count[c.idx] = base.contDays[ci];
   });
-  return load;
+}
+
+/** Hourly load of one scenario with its per-load costs. */
+function place(base: Base, cfgs: { cycles: CycleCfg[]; conts: ContCfg[] }, nLoads: number, kwp: number, shift: boolean, prices: Prices) {
+  const sur = new Float64Array(HOURS);
+  for (let i = 0; i < HOURS; i++) sur[i] = kwp * base.pv1[i] - base.load0[i];
+  const load = Float64Array.from(base.load0);
+  const perLoad: PerLoad = { cost: new Array<number>(nLoads).fill(0), count: new Array<number>(nLoads).fill(0) };
+  placeConts(base, cfgs.conts, sur, load, shift && kwp > 0, prices, perLoad);
+  placeCycles(base, cfgs.cycles, sur, load, shift && kwp > 0, prices, perLoad);
+  return { load, perLoad };
 }
 
 function simulate(load: Float64Array, base: Base, kwp: number, cap: number, bat: BatteryCfg): Sim {
@@ -368,9 +544,9 @@ export class DemoBackend {
 
   constructor(private storage: Storage | null = typeof localStorage !== "undefined" ? localStorage : null) {
     const saved = this.storage?.getItem(STORAGE_KEY);
-    const parsed = saved ? (JSON.parse(saved) as { settings?: Partial<Settings>; loads?: LoadDef[] }) : null;
+    const parsed = saved ? (JSON.parse(saved) as { settings?: Partial<Settings>; loads?: unknown }) : null;
     this.settings = withDefaults(parsed?.settings);
-    this.loads = parsed?.loads ?? structuredClone(DEFAULT_LOADS);
+    this.loads = migrateLoads(parsed?.loads) ?? structuredClone(DEFAULT_LOADS);
   }
 
   reset(): void {
@@ -393,7 +569,7 @@ export class DemoBackend {
         this.persist();
         return this.config();
       case "pv_sizer/loads/update":
-        this.loads = msg.loads as LoadDef[];
+        this.loads = migrateLoads(msg.loads) ?? [];
         this.persist();
         return this.config();
       default:
@@ -427,6 +603,8 @@ export class DemoBackend {
   private computed() {
     const cacheKey = JSON.stringify([this.settings, this.loads]);
     if (this.cache?.key === cacheKey) return this.cache;
+    const { monthly } = blendConsumption(this.settings.consumption);
+    if (!monthly) throw new Error("Mancano i dati di consumo: scegli un misuratore o inserisci il consumo annuo.");
     const cfgs = toLoadCfgs(this.loads);
     const prices = this.prices();
     const sys = this.settings.system;
@@ -436,14 +614,13 @@ export class DemoBackend {
       eff: Math.min(1, Math.max(0.5, sys.efficiency_pct / 100)),
       exportLimit: Math.max(0, sys.export_limit_kw),
     };
-    const base = buildBase(DEMO_MONTHLY_KWH, cfgs);
+    const base = buildBase(monthly, cfgs.cycles, cfgs.conts);
     const entries = new Map<string, Entry>();
     for (const shift of [false, true]) {
       for (const k of [0, ...this.pvSizes]) {
-        const pl = placeCycles(base, cfgs, k, shift, prices);
-        const load = buildLoad(base, pl.starts);
+        const { load, perLoad } = place(base, cfgs, this.loads.length, k, shift, prices);
         for (const cap of k === 0 ? [0] : this.batterySizes) {
-          entries.set(key(k, cap, shift), { sim: simulate(load, base, k, cap, bat), perLoad: pl.perLoad });
+          entries.set(key(k, cap, shift), { sim: simulate(load, base, k, cap, bat), perLoad });
         }
       }
     }
@@ -484,22 +661,18 @@ export class DemoBackend {
   }
 
   private config(): PanelConfig {
-    const { entries, prices } = this.computed();
+    const prices = this.prices();
+    const { info, monthly } = blendConsumption(this.settings.consumption);
     return {
+      demo: true,
       location: { name: "San Cipriano Picentino (SA)", latitude: 40.72, longitude: 14.87 },
       horizon_years: HORIZON_YEARS,
-      data: {
-        source: "demo",
-        consumption_entity_id: null,
-        from: "2027-01-01",
-        to: "2027-12-31",
-        days: 365,
-        annual_kwh: Math.round(entries.get(key(0, 0, false))!.sim.cons),
-      },
+      data: { ...info, loads_exceed_months: monthly ? this.computed().base.exceed : [] },
       settings: this.settings,
       loads: this.loads,
       detected: DETECTED,
       sensor_options: SENSOR_OPTIONS,
+      meter_options: METER_OPTIONS,
       derived: { grid_price_eur_kwh: prices.grid, fixed_annual_eur: round2(prices.fixedAnnual) },
     };
   }
@@ -544,6 +717,7 @@ export class DemoBackend {
       const n = off.count[i] || 1;
       return {
         load_id: l.id,
+        kind: l.kind,
         cycles_per_year: off.count[i],
         cost_per_cycle_no_pv: round2(noPv.cost[i] / n),
         cost_per_cycle_pv: round2(off.cost[i] / n),

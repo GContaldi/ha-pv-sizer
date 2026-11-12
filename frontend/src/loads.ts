@@ -1,11 +1,51 @@
-import type { LoadDef, LoadDetected, UsualTime } from "./api/types";
+import type { ContinuousLoad, CycleLoad, HourProfile, LoadDef, LoadDetected, UsualTime } from "./api/types";
 
-/** What the calculation uses: the sensor's measured cycles, or the estimate until a sensor is picked. */
-export function effectiveUsage(load: LoadDef, detected: LoadDetected[]) {
-  const det = load.source === "sensor" ? detected.find((d) => d.entity_id === load.sensor_entity_id) : undefined;
-  return det
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+export const MONTH_SHORT = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
+
+function sensorStats(load: LoadDef, detected: LoadDetected[]) {
+  return load.source === "sensor" ? detected.find((d) => d.entity_id === load.sensor_entity_id) : undefined;
+}
+
+/** What the calculation uses: the sensor's measured cycles, or the estimate until a sensor with cycles is picked. */
+export function effectiveUsage(load: CycleLoad, detected: LoadDetected[]) {
+  const det = sensorStats(load, detected);
+  return det && det.cycles_per_year > 0
     ? { measured: det, perWeek: (det.cycles_per_year * 7) / 365, kwh: det.kwh_per_cycle, hours: Math.max(1, Math.round(det.duration_h)) }
     : { measured: undefined, perWeek: load.cycles_per_week, kwh: load.kwh_per_cycle, hours: load.duration_h };
+}
+
+/** Same for continuous loads: kWh/day for each month (0 = off), from the sensor or the estimate. */
+export function continuousUsage(load: ContinuousLoad, detected: LoadDetected[]) {
+  const measured = sensorStats(load, detected)?.continuous;
+  const kwhByMonth = measured ? measured.kwh_per_day_by_month : DAYS_IN_MONTH.map((_, m) => (load.months.includes(m + 1) ? load.kwh_per_day : 0));
+  const active = kwhByMonth.map((v, m) => (v > 0 ? m + 1 : 0)).filter((m) => m > 0);
+  const activeDays = active.reduce((a, m) => a + DAYS_IN_MONTH[m - 1], 0);
+  const yearKwh = kwhByMonth.reduce((a, v, m) => a + v * DAYS_IN_MONTH[m], 0);
+  return { measured, kwhByMonth, months: active, perDay: activeDays ? yearKwh / activeDays : 0, yearKwh };
+}
+
+export const HOUR_PROFILE_LABEL: Record<HourProfile, string> = {
+  flat: "Tutto il giorno",
+  heating: "Mattina e sera",
+  cooling: "Pomeriggio",
+};
+
+/** "nov–mar, giu–set", or "tutto l'anno". */
+export function monthsLabel(months: number[]): string {
+  const set = new Set(months);
+  if (set.size === 0) return "nessun mese";
+  if (set.size === 12) return "tutto l'anno";
+  const prev = (m: number) => ((m + 10) % 12) + 1;
+  const next = (m: number) => (m % 12) + 1;
+  const runs: string[] = [];
+  for (let m = 1; m <= 12; m++) {
+    if (!set.has(m) || set.has(prev(m))) continue;
+    let end = m;
+    while (set.has(next(end))) end = next(end);
+    runs.push(end === m ? MONTH_SHORT[m - 1] : `${MONTH_SHORT[m - 1]}–${MONTH_SHORT[end - 1]}`);
+  }
+  return runs.join(", ");
 }
 
 /** Start-hour bands; together they cover the whole day. */
@@ -48,9 +88,13 @@ export function usualBand(histogram: number[]): UsualTime {
 export const usualPhrase = (histogram: number[]) => BAND_PHRASE[usualBand(histogram)];
 
 /** True if `id` waiting for `candidate` would close a loop of "deve aspettare". */
-export function createsLoop(loads: Pick<LoadDef, "id" | "after">[], id: string, candidate: string): boolean {
+export function createsLoop(loads: LoadDef[], id: string, candidate: string): boolean {
+  const afterOf = (loadId: string) => {
+    const l = loads.find((x) => x.id === loadId);
+    return l?.kind === "cycle" ? l.after : null;
+  };
   const seen = new Set<string>();
-  for (let cur: string | null = candidate; cur; cur = loads.find((l) => l.id === cur)?.after ?? null) {
+  for (let cur: string | null = candidate; cur; cur = afterOf(cur)) {
     if (cur === id) return true;
     if (seen.has(cur)) return false;
     seen.add(cur);

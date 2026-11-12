@@ -38,37 +38,76 @@ export interface ScenarioSizes {
   battery_sizes_kwh: number[];
 }
 
+/** Month-by-month shape used for the months the meter has not measured. */
+export type SeasonalProfile = "pdc_heating" | "pdc_heating_cooling" | "no_pdc";
+
+export interface ConsumptionSettings {
+  /** Whole-house energy sensor (total_increasing kWh). */
+  meter_entity_id: string | null;
+  /** Yearly total from the bill. */
+  annual_kwh: number | null;
+  seasonal_profile: SeasonalProfile;
+}
+
 export interface Settings {
   tariff: Tariff;
   system: SystemCosts;
   lifetime: Lifetime;
   scenarios: ScenarioSizes;
+  consumption: ConsumptionSettings;
 }
 
-export interface LoadDef {
+interface LoadBase {
   id: string;
   name: string;
   source: "estimate" | "sensor";
   sensor_entity_id: string | null;
+  shiftable: boolean;
+}
+
+/** Runs in discrete cycles that can start later (washing machine, car, …). */
+export interface CycleLoad extends LoadBase {
+  kind: "cycle";
   kwh_per_cycle: number;
   duration_h: number;
   cycles_per_week: number;
   usual_time: UsualTime;
-  shiftable: boolean;
   window_start: number;
   window_end: number;
+  /** Id of a cycle load that must finish first. */
   after: string | null;
 }
 
-/** Cycles found in the history of one sensor option; loads with source "sensor" use these. */
+export type HourProfile = "flat" | "heating" | "cooling";
+
+/** Draws power every day of its active months (heat pump, air conditioning, ventilation). */
+export interface ContinuousLoad extends LoadBase {
+  kind: "continuous";
+  /** In the active months. */
+  kwh_per_day: number;
+  /** 1..12 */
+  months: number[];
+  hour_profile: HourProfile;
+  /** 0..0.5: share of each hour that can run earlier, using the thermal inertia of the house. */
+  shift_share: number;
+  /** 1..4: how many hours earlier at most. */
+  shift_advance_h: number;
+}
+
+export type LoadDef = CycleLoad | ContinuousLoad;
+
+/** What the history of one sensor option shows; loads with source "sensor" use these. */
 export interface LoadDetected {
   entity_id: string;
+  /** 0 when the history shows no distinct cycles. */
   cycles_per_year: number;
   kwh_per_cycle: number;
   duration_h: number;
   usual_start_hour: number;
   /** Cycle starts per local hour over the last 12 months. */
   start_histogram: number[];
+  /** Daily use for continuous loads: kWh/day per month (0 = off) and share of the day's energy per hour. */
+  continuous?: { kwh_per_day_by_month: number[]; hour_profile: number[] };
 }
 
 export interface SensorOption {
@@ -76,17 +115,28 @@ export interface SensorOption {
   name: string;
 }
 
+/** How the typical year was built from meter history and estimates. */
 export interface DataInfo {
-  source: "statistics" | "demo";
-  consumption_entity_id: string | null;
-  from: string;
-  to: string;
+  source: "measured" | "mixed" | "estimate" | "missing";
+  /** Meter coverage. */
+  from: string | null;
+  to: string | null;
   days: number;
+  /** Total used by the calculation. */
   annual_kwh: number;
+  /** 12 entries; measured_share is the measured part of the month's kWh, 0..1. */
+  months: { kwh: number; measured_share: number }[];
+  /** Where the daily shape (hour × weekday) comes from. */
+  pattern_source: "sensor" | "profile";
+  warning: "measured_exceeds_annual" | null;
+  /** 0-based months where the loads exceeded the month's total and were cut back. */
+  loads_exceed_months: number[];
 }
 
 /** `pv_sizer/config` and the reply of every update command. */
 export interface PanelConfig {
+  /** Synthetic data from the development backend. */
+  demo: boolean;
   location: { name: string; latitude: number; longitude: number };
   horizon_years: number;
   data: DataInfo;
@@ -94,6 +144,8 @@ export interface PanelConfig {
   loads: LoadDef[];
   detected: LoadDetected[];
   sensor_options: SensorOption[];
+  /** Whole-house meters; the grid import of the Energy dashboard comes first. */
+  meter_options: SensorOption[];
   derived: { grid_price_eur_kwh: number; fixed_annual_eur: number };
 }
 
@@ -139,8 +191,10 @@ export type CostItem =
   | { kind: "battery_replacement"; year: number; amount_eur: number }
   | { kind: "inverter_replacement"; year: number; amount_eur: number };
 
+/** For continuous loads cycles_per_year counts active days and costs are per day. */
 export interface LoadValue {
   load_id: string;
+  kind: LoadDef["kind"];
   cycles_per_year: number;
   cost_per_cycle_no_pv: number;
   cost_per_cycle_pv: number;
