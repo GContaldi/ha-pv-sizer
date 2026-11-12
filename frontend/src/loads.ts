@@ -1,4 +1,12 @@
-import type { LoadDef, UsualTime } from "./api/types";
+import type { LoadDef, LoadDetected, UsualTime } from "./api/types";
+
+/** What the calculation uses: the sensor's measured cycles, or the estimate until a sensor is picked. */
+export function effectiveUsage(load: LoadDef, detected: LoadDetected[]) {
+  const det = load.source === "sensor" ? detected.find((d) => d.entity_id === load.sensor_entity_id) : undefined;
+  return det
+    ? { measured: det, perWeek: (det.cycles_per_year * 7) / 365, kwh: det.kwh_per_cycle, hours: Math.max(1, Math.round(det.duration_h)) }
+    : { measured: undefined, perWeek: load.cycles_per_week, kwh: load.kwh_per_cycle, hours: load.duration_h };
+}
 
 /** Start-hour bands; together they cover the whole day. */
 export const USUAL_TIME_RANGE: Record<UsualTime, [number, number]> = {

@@ -4,7 +4,7 @@ import { numberField, selectField } from "../fields";
 import { formatters, parseNumber, type Formatters } from "../format";
 import { SIZE_LIMITS, normalizeSizes } from "../scenario-sizes";
 import { shared } from "../styles";
-import "./loads-editor";
+import "./loads-list";
 
 type SizeKind = "pv" | "battery";
 
@@ -277,7 +277,7 @@ export class PvSettingsPage extends LitElement {
           <h3>Carichi spostabili</h3>
           <span class="small muted">Gli elettrodomestici che potresti far partire in un altro orario. Quanto vale spostarli lo trovi in Scenari.</span>
         </div>
-        <pv-loads-editor .config=${this.config} .locale=${this.locale}></pv-loads-editor>
+        <pv-loads-list .config=${this.config} .locale=${this.locale}></pv-loads-list>
       </div>
 
       <div class="card" id="taglie">
