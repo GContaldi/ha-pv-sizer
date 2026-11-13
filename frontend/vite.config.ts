@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  // Library mode leaves `process.env.NODE_ENV` (from echarts) in the bundle, and browsers have no `process`.
+  define: { "process.env.NODE_ENV": JSON.stringify("production") },
   build: {
     lib: {
       entry: "src/pv-sizer-panel.ts",
