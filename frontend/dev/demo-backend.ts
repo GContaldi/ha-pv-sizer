@@ -64,14 +64,14 @@ export const DEFAULT_SETTINGS: Settings = {
   scenarios: { pv_sizes_kwp: [3, 4.5, 6, 7.5, 9], battery_sizes_kwh: [5, 10, 15] },
   consumption: { meter_entity_id: null, annual_kwh: 6200, seasonal_profile: "pdc_heating" },
   // Zone C is a guess for San Cipriano Picentino; the real backend proposes it from the location.
-  // Seminterrato: emitter assumed (PDC zone 2), area still to enter.
+  // Seminterrato (PDC zone 2): aluminium radiators; area still to enter.
   house: {
     climate_zone: "C",
     insulation: "medium",
     heat_pump: "daikin_altherma3_rf_11",
     zones: [
       { name: "Piano terra", area_m2: 88, emitter: "fancoil", cooling: true },
-      { name: "Seminterrato", area_m2: null, emitter: "floor", cooling: false },
+      { name: "Seminterrato", area_m2: null, emitter: "radiators", cooling: false },
     ],
   },
 };
