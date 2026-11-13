@@ -315,7 +315,7 @@ export class PvLoadDialog extends LitElement {
         margin: 8px 0;
       }
       button.link.edit-house {
-        margin-top: 8px;
+        margin: 4px 0 -8px -12px;
       }
       .error {
         color: var(--error-color);

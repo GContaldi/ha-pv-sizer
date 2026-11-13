@@ -255,7 +255,7 @@ export class PvScenarioGrid extends LitElement {
             <span>${sourceLine(this.data, f)}</span>
             <button
               class="link"
-              @click=${() => this.dispatchEvent(new CustomEvent("navigate", { detail: "impostazioni/dati", bubbles: true, composed: true }))}
+              @click=${() => this.dispatchEvent(new CustomEvent("navigate", { detail: "impostazioni/casa", bubbles: true, composed: true }))}
             >
               Modifica
             </button>

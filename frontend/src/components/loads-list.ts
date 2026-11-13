@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing } from "lit";
 import type { LoadDef, PanelConfig } from "../api/types";
 import { formatters, type Formatters } from "../format";
+import { roughKwh } from "../house";
 import { continuousUsage, effectiveUsage, monthsLabel, usageContext } from "../loads";
 import { shared } from "../styles";
 import type { PvLoadDialog } from "./load-dialog";
@@ -111,7 +112,7 @@ export class PvLoadsList extends LitElement {
       const use = continuousUsage(l, usageContext(this.config));
       fromHouse = use.fromHouse;
       usage = fromHouse
-        ? `circa ${f.num(use.yearKwh, 0)} kWh/anno · ${monthsLabel(use.months)}`
+        ? `circa ${f.num(roughKwh(use.yearKwh), 0)} kWh/anno · ${monthsLabel(use.months)}`
         : `${f.num(use.perDay)} kWh/giorno · ${monthsLabel(use.months)}`;
     }
     if (l.source === "estimate") return `${fromHouse ? "Dalla casa" : "Stima"} · ${usage}`;

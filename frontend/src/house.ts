@@ -12,15 +12,15 @@ export const ZONE_LABEL: Record<ClimateZone, string> = {
 };
 
 export const INSULATION_LABEL: Record<Insulation, string> = {
-  good: "Buono · nuova o ristrutturata",
-  medium: "Medio · anni '90–2000",
+  good: "Buono · casa nuova",
+  medium: "Medio · anni '90",
   poor: "Scarso · non isolata",
 };
 
 export const INSULATION_HINT: Record<Insulation, string> = {
-  good: "Cappotto o pareti isolate, infissi doppi o tripli",
-  medium: "Isolata in parte, infissi doppi ma non recenti",
-  poor: "Muri senza isolante, infissi vecchi o singoli",
+  good: "Nuova o ristrutturata: cappotto, infissi doppi o tripli",
+  medium: "Anni '90–2000: isolata in parte, infissi doppi non recenti",
+  poor: "Muri senza isolante, infissi vecchi o a vetro singolo",
 };
 
 const INSULATION_WORD: Record<Insulation, string> = { good: "buono", medium: "medio", poor: "scarso" };
@@ -54,8 +54,11 @@ export function houseUsagePhrase(f: Formatters, use: { kwhByMonth: number[]; mon
     hi.v - lo.v < 0.5
       ? `circa ${perDay(f, hi.v)} kWh/giorno`
       : `da ${perDay(f, lo.v)} kWh/giorno a ${MONTH_NAMES[lo.m - 1]} a ${perDay(f, hi.v)} a ${MONTH_NAMES[hi.m - 1]}`;
-  return `circa ${f.kwh(use.yearKwh)} l'anno, ${range}`;
+  return `circa ${f.kwh(roughKwh(use.yearKwh))} l'anno, ${range}`;
 }
+
+/** Model estimates are not precise to the unit: 1479 → 1480. */
+export const roughKwh = (v: number) => (v >= 100 ? Math.round(v / 10) * 10 : Math.round(v));
 
 /** Area the load is computed on: its own, or the whole heated area. */
 export const servedArea = (load: ContinuousLoad, h: HouseSettings) => load.area_m2 ?? h.heated_area_m2;

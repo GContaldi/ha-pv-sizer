@@ -7,6 +7,7 @@ import "./components/scenario-grid";
 import "./components/scenario-detail";
 import "./components/shift-savings";
 import "./components/settings-page";
+import { sectionId } from "./components/settings-sections";
 
 type Tab = "scenari" | "impostazioni";
 
@@ -15,7 +16,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "impostazioni", label: "Impostazioni" },
 ];
 
-/** `#impostazioni/carichi` → tab + section to scroll to. */
+/** `#impostazioni/carichi` → tab + settings subpage. */
 function readRoute(): { tab: Tab; section?: string } {
   const [tab, section] = location.hash.replace(/^#/, "").split("/");
   return tab === "impostazioni" ? { tab, section: section || undefined } : { tab: "scenari" };
@@ -52,6 +53,8 @@ export class PvSizerPanel extends LitElement {
   declare themeKey: string;
   private started = false;
   private detailRequest = 0;
+  /** The current settings subpage was opened from the index, so Back can pop history. */
+  private cameFromIndex = false;
 
   constructor() {
     super();
@@ -76,6 +79,8 @@ export class PvSizerPanel extends LitElement {
 
   private onRoute = () => {
     const { tab, section } = readRoute();
+    const onIndex = this.tab === "impostazioni" && !sectionId(this.section);
+    this.cameFromIndex = onIndex && tab === "impostazioni" && !!sectionId(section);
     this.tab = tab;
     this.section = section;
   };
@@ -84,6 +89,12 @@ export class PvSizerPanel extends LitElement {
   private go(route: string) {
     if (location.hash === `#${route}`) this.onRoute();
     else location.hash = route;
+  }
+
+  /** Back from a settings subpage: undo the step from the index, or land on it without a new entry. */
+  private back() {
+    if (this.cameFromIndex) history.back();
+    else location.replace("#impostazioni");
   }
 
   static styles = [
@@ -336,7 +347,7 @@ export class PvSizerPanel extends LitElement {
       return html`<div class="banner stack" role="status">
         <span class="strong">Mancano i dati di consumo</span>
         <span>Per confrontare gli scenari serve sapere quanto consuma la casa: scegli il misuratore o scrivi il consumo annuo della bolletta.</span>
-        <span><button class="link" style="margin-left:-12px" @click=${() => this.go("impostazioni/dati")}>Imposta i consumi</button></span>
+        <span><button class="link" style="margin-left:-12px" @click=${() => this.go("impostazioni/casa")}>Imposta i consumi</button></span>
       </div>`;
     }
     if (!this.results || !this.config) return nothing;
@@ -421,6 +432,8 @@ export class PvSizerPanel extends LitElement {
               .busy=${this.busy}
               @settings-change=${this.onSettings}
               @loads-change=${this.onLoads}
+              @navigate=${(e: CustomEvent<string>) => this.go(e.detail)}
+              @navigate-back=${this.back}
             ></pv-settings-page>`
           : nothing}
       </main>
