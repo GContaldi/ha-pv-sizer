@@ -1,0 +1,7 @@
+{
+  "name": "PV Sizer",
+  "homeassistant": "2026.10.0",
+  "zip_release": true,
+  "filename": "pv_sizer.zip",
+  "render_readme": true
+}

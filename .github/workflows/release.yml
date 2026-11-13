@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build the panel
+        working-directory: frontend
+        run: npm ci && npm run build
+      - name: Version from the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          jq --arg v "$version" '.version = $v' custom_components/pv_sizer/manifest.json > manifest.json
+          mv manifest.json custom_components/pv_sizer/manifest.json
+      - name: Zip the integration
+        working-directory: custom_components/pv_sizer
+        run: zip -r "$GITHUB_WORKSPACE/pv_sizer.zip" . -x '*__pycache__*'
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: pv_sizer.zip
+          generate_release_notes: true
