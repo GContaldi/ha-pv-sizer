@@ -182,7 +182,7 @@ const METER_OPTIONS = [
   { entity_id: "sensor.demo_contatore_anno", name: "Contatore, un anno (demo)" },
 ];
 
-type MeterHistory = { from: string; to: string; days: number; daysByMonth: number[]; kwhByMonth: number[] };
+export type MeterHistory = { from: string; to: string; days: number; daysByMonth: number[]; kwhByMonth: number[] };
 
 // What the house really uses; the demo meters measure slices of it.
 const DEMO_TRUE_MONTHLY = [760, 660, 540, 410, 350, 400, 520, 530, 410, 410, 560, 740];
@@ -193,7 +193,7 @@ const meterHistory = (from: string, to: string, daysByMonth: number[]): MeterHis
   daysByMonth,
   kwhByMonth: DEMO_TRUE_MONTHLY.map((kwh, m) => (kwh * daysByMonth[m]) / DAYS_IN_MONTH[m]),
 });
-const METERS: Record<string, MeterHistory> = {
+export const METERS: Record<string, MeterHistory> = {
   "sensor.demo_casa_energia": meterHistory("2026-09-26", "2026-11-11", [0, 0, 0, 0, 0, 0, 0, 0, 5, 31, 11, 0]),
   "sensor.demo_contatore_anno": meterHistory("2025-11-12", "2026-11-11", DAYS_IN_MONTH),
 };
