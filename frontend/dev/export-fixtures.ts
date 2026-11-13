@@ -134,4 +134,5 @@ const out = cases.map((c) => {
   };
 });
 
-console.log(JSON.stringify(out, null, 1));
+// 12 significant digits: Math.sin and Math.pow differ in the last bit between platforms.
+console.log(JSON.stringify(out, (_, v) => (typeof v === "number" && !Number.isInteger(v) ? Number(v.toPrecision(12)) : v), 1));
