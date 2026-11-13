@@ -1,7 +1,8 @@
 import { css, html, nothing, type TemplateResult } from "lit";
-import type { ClimateZone, Emitter, Insulation, PanelConfig, ScenarioSizes, SeasonalProfile, Settings } from "../api/types";
+import { live } from "lit/directives/live.js";
+import type { ClimateZone, Emitter, HouseZone, Insulation, PanelConfig, ScenarioSizes, SeasonalProfile, Settings } from "../api/types";
 import { SEASONAL_LABEL, formatDate, joinMonths, statusSentence } from "../consumption";
-import { numberField, selectField } from "../fields";
+import { numberField, selectField, switchField } from "../fields";
 import { MONTHS, parseNumber, type Formatters } from "../format";
 import { EMITTER_LABEL, INSULATION_HINT, INSULATION_LABEL, ZONE_LABEL } from "../house";
 import { continuousUsage, usageContext } from "../loads";
@@ -36,22 +37,64 @@ function cardHead(title: string | null, hint?: string) {
   </div>`;
 }
 
+const MAX_ZONES = 3;
+
 function renderHouse(ctx: SectionContext) {
+  const { f } = ctx;
   const h = ctx.config.settings.house;
+  const model = ctx.config.derived.house;
   const set = setter(ctx, "house");
+  const pumps = ctx.config.heat_pump_options.map((o) => ({ value: o.id, label: o.label }));
   return html`<div class="card">
     ${cardHead("La casa", "Serve a stimare la pompa di calore e i climatizzatori dei carichi.")}
     ${selectField("Zona climatica", h.climate_zone, options(ZONE_LABEL), (v) => set("climate_zone")(v as ClimateZone), "La trovi sull'APE o nella tabella del tuo comune", true)}
-    ${numberField("Superficie riscaldata", h.heated_area_m2, "m²", ctx.locale, set("heated_area_m2"), {
-      min: 20,
-      max: 2000,
-      integer: true,
-      placeholder: "Da inserire",
-      onClear: () => set("heated_area_m2")(null),
-      hint: "Le stanze che scaldi con la pompa di calore",
-    })}
     ${selectField("Isolamento", h.insulation, options(INSULATION_LABEL), (v) => set("insulation")(v as Insulation), INSULATION_HINT[h.insulation], true)}
-    ${selectField("Impianto", h.emitter, options(EMITTER_LABEL), (v) => set("emitter")(v as Emitter), "Con il pavimento radiante la pompa di calore consuma meno", true)}
+    ${selectField(
+      "Pompa di calore",
+      h.heat_pump,
+      pumps,
+      set("heat_pump"),
+      `SCOP della casa ${f.num(model.scop)}: dalla scheda del modello e dai terminali delle zone`,
+      true,
+    )}
+  </div>`;
+}
+
+function renderZones(ctx: SectionContext) {
+  const zones = ctx.config.settings.house.zones;
+  const setZones = setter(ctx, "house")("zones");
+  const patchZone = (i: number, changes: Partial<HouseZone>) => setZones(zones.map((z, j) => (j === i ? { ...z, ...changes } : z)));
+  const addZone = () => setZones([...zones, { name: `Zona ${zones.length + 1}`, area_m2: null, emitter: "fancoil", cooling: true }]);
+  return html`<div class="card">
+    ${cardHead("Zone dell'impianto", "Una zona per ogni tipo di terminale, per esempio fancoil al piano terra e pavimento radiante al seminterrato.")}
+    ${zones.map(
+      (z, i) => html`<div class="zone">
+        <div class="zone-head">
+          <input
+            class="zone-name"
+            type="text"
+            aria-label="Nome della zona"
+            .value=${live(z.name)}
+            @change=${(e: Event) => patchZone(i, { name: (e.target as HTMLInputElement).value.trim() || `Zona ${i + 1}` })}
+          />
+          ${zones.length > 1
+            ? html`<button class="remove" aria-label="Togli ${z.name}" @click=${() => setZones(zones.filter((_, j) => j !== i))}>×</button>`
+            : nothing}
+        </div>
+        ${numberField("Superficie", z.area_m2, "m²", ctx.locale, (v) => patchZone(i, { area_m2: v }), {
+          min: 5,
+          max: 2000,
+          integer: true,
+          placeholder: "Da inserire",
+          onClear: () => patchZone(i, { area_m2: null }),
+        })}
+        ${selectField("Terminali", z.emitter, options(EMITTER_LABEL), (v) =>
+          patchZone(i, { emitter: v as Emitter, cooling: v === "radiators" ? false : z.cooling }),
+        )}
+        ${z.emitter === "radiators" ? nothing : switchField("Raffresca d'estate", z.cooling, (v) => patchZone(i, { cooling: v }))}
+      </div>`,
+    )}
+    ${zones.length < MAX_ZONES ? html`<button class="link add-zone" @click=${addZone}>+ Aggiungi zona</button>` : nothing}
   </div>`;
 }
 
@@ -276,8 +319,9 @@ function renderNotes() {
       </li>
       <li>
         Pompa di calore e climatizzatori "dalla casa": il calore che serve viene dai gradi giorno tipici della zona climatica, dal periodo di
-        accensione previsto per legge e dall'isolamento; i kWh elettrici sono quel calore diviso per il rendimento stagionale (SCOP, più alto
-        con il pavimento radiante; SEER in estate).
+        accensione previsto per legge e dall'isolamento; i kWh elettrici sono quel calore diviso per il rendimento stagionale (SCOP; SEER in
+        estate). Lo SCOP viene dalla scheda tecnica del modello (clima medio, 35 °C per il pavimento, 55 °C per i radiatori, a metà per i
+        fancoil). Con più zone ognuna pesa per la sua superficie, come se avesse la sua temperatura di mandata.
       </li>
       <li>La batteria si carica solo dal FV, mai dalla rete.</li>
       <li>Lo spostamento mette i carichi nelle ore di sole della stessa giornata, senza considerare la batteria.</li>
@@ -305,11 +349,11 @@ export const SECTIONS = {
   casa: {
     title: "Casa e consumi",
     summary: ({ config: c, f }) => {
-      const h = c.settings.house;
+      const area = c.derived.house.heated_area_m2;
       const d = c.data;
       return [
-        `Zona ${h.climate_zone}`,
-        ...(h.heated_area_m2 !== null ? [`${f.num(h.heated_area_m2, 0)} m²`] : []),
+        `Zona ${c.settings.house.climate_zone}`,
+        ...(area !== null ? [`${f.num(area, 0)} m²`] : []),
         ...(d.source !== "missing" ? [`${f.num(d.annual_kwh, 0)} kWh l'anno, ${SOURCE_WORD[d.source]}`] : []),
       ].join(" · ");
     },
@@ -318,10 +362,12 @@ export const SECTIONS = {
       return [
         ...(c.data.source === "missing" ? ["Mancano i consumi"] : []),
         ...(c.data.warning === "measured_exceeds_annual" ? ["Consumo annuo da controllare"] : []),
-        ...(c.loads.some((l) => l.kind === "continuous" && continuousUsage(l, ctx).needsArea) ? ["Manca la superficie"] : []),
+        ...(c.settings.house.zones.some((z) => z.area_m2 === null) || c.loads.some((l) => l.kind === "continuous" && continuousUsage(l, ctx).needsArea)
+          ? ["Manca la superficie"]
+          : []),
       ];
     },
-    render: (ctx) => html`${renderHouse(ctx)} ${renderData(ctx)}`,
+    render: (ctx) => html`${renderHouse(ctx)} ${renderZones(ctx)} ${renderData(ctx)}`,
   },
   carichi: {
     title: "Carichi",
@@ -400,6 +446,53 @@ export const sectionStyles = css`
   }
   .note {
     margin-top: 8px;
+  }
+  .zone {
+    margin-top: 8px;
+    padding: 4px 12px;
+    border: 1px solid var(--divider-color);
+    border-radius: 12px;
+  }
+  .zone-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--divider-color);
+  }
+  input.zone-name {
+    flex: 1;
+    min-width: 0;
+    font-weight: 500;
+    background: transparent;
+    border-color: transparent;
+    padding: 0 8px;
+    margin-left: -8px;
+  }
+  input.zone-name:hover {
+    border-color: var(--divider-color);
+  }
+  button.remove {
+    flex: none;
+    font: inherit;
+    font-size: 20px;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--secondary-text-color);
+    cursor: pointer;
+  }
+  button.remove:hover {
+    background: var(--secondary-background-color);
+  }
+  button.remove:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+  }
+  button.link.add-zone {
+    margin: 8px 0 0 -12px;
   }
   .sizes {
     display: flex;

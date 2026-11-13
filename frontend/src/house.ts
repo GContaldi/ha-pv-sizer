@@ -1,4 +1,4 @@
-import type { ClimateZone, ContinuousLoad, Emitter, HouseSettings, Insulation } from "./api/types";
+import type { ClimateZone, Emitter, HouseModel, HouseSettings, Insulation } from "./api/types";
 import { MONTH_NAMES } from "./consumption";
 import type { Formatters } from "./format";
 
@@ -31,14 +31,22 @@ export const EMITTER_LABEL: Record<Emitter, string> = {
   radiators: "Radiatori",
 };
 
-/** "Zona C · 100 m² · isolamento medio · fancoil" */
-export function houseSummary(h: HouseSettings, f: Formatters, opts: { area?: number | null; emitter?: boolean } = {}): string {
-  const area = opts.area !== undefined ? opts.area : h.heated_area_m2;
+const EMITTER_WORD: Record<Emitter, string> = { floor: "pavimento", fancoil: "fancoil", radiators: "radiatori" };
+
+/** "fancoil e pavimento", from the zones the estimate counts (those with an area). */
+export function emittersPhrase(h: HouseSettings): string {
+  const sized = h.zones.filter((z) => z.area_m2);
+  return [...new Set((sized.length ? sized : h.zones).map((z) => EMITTER_WORD[z.emitter]))].join(" e ");
+}
+
+/** "Zona C · 88 m² · isolamento medio · fancoil e pavimento · SCOP 4,2" */
+export function houseSummary(h: HouseSettings, model: HouseModel, f: Formatters, opts: { area?: number | null; heating?: boolean } = {}): string {
+  const area = opts.area !== undefined ? opts.area : model.heated_area_m2;
   return [
     `Zona ${h.climate_zone}`,
     area !== null ? `${f.num(area, 0)} m²` : "superficie da inserire",
     `isolamento ${INSULATION_WORD[h.insulation]}`,
-    ...(opts.emitter === false ? [] : [EMITTER_LABEL[h.emitter].toLowerCase()]),
+    ...(opts.heating === false ? [`SEER ${f.num(model.seer)}`] : [emittersPhrase(h), `SCOP ${f.num(model.scop)}`]),
   ].join(" · ");
 }
 
@@ -61,6 +69,3 @@ export function houseUsagePhrase(f: Formatters, use: { kwhByMonth: number[]; mon
 
 /** Model estimates are not precise to the unit: 1479 → 1480. */
 export const roughKwh = (v: number) => (v >= 100 ? Math.round(v / 10) * 10 : Math.round(v));
-
-/** Area the load is computed on: its own, or the whole heated area. */
-export const servedArea = (load: ContinuousLoad, h: HouseSettings) => load.area_m2 ?? h.heated_area_m2;

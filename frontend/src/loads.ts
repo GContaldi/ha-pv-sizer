@@ -1,4 +1,4 @@
-import type { ContinuousLoad, CycleLoad, HourProfile, HouseModel, HouseSettings, LoadDef, LoadDetected, PanelConfig, UsualTime } from "./api/types";
+import type { ContinuousLoad, CycleLoad, HourProfile, HouseModel, LoadDef, LoadDetected, PanelConfig, UsualTime } from "./api/types";
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 export const MONTH_SHORT = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
@@ -17,11 +17,14 @@ export function effectiveUsage(load: CycleLoad, detected: LoadDetected[]) {
 
 export interface UsageContext {
   detected: LoadDetected[];
-  house: HouseSettings;
   model: HouseModel;
 }
 
-export const usageContext = (c: PanelConfig): UsageContext => ({ detected: c.detected, house: c.settings.house, model: c.derived.house });
+export const usageContext = (c: PanelConfig): UsageContext => ({ detected: c.detected, model: c.derived.house });
+
+/** Area a house-based load is computed on: its own, or the heated (cooled) area of the house. */
+export const servedArea = (load: ContinuousLoad, model: HouseModel) =>
+  load.area_m2 ?? (load.use === "cooling" ? model.cooled_area_m2 : model.heated_area_m2);
 
 /**
  * Same for continuous loads: kWh/day for each month (0 = off), from the sensor, the house model
@@ -30,7 +33,7 @@ export const usageContext = (c: PanelConfig): UsageContext => ({ detected: c.det
 export function continuousUsage(load: ContinuousLoad, ctx: UsageContext) {
   const measured = sensorStats(load, ctx.detected)?.continuous;
   const wantsHouse = !measured && load.basis === "house" && load.use !== null;
-  const area = load.area_m2 ?? ctx.house.heated_area_m2;
+  const area = servedArea(load, ctx.model);
   const fromHouse = wantsHouse && area !== null && area > 0;
   let kwhByMonth: number[];
   if (measured) kwhByMonth = measured.kwh_per_day_by_month;
@@ -46,7 +49,7 @@ export function continuousUsage(load: ContinuousLoad, ctx: UsageContext) {
   return {
     measured,
     fromHouse,
-    /** Wants the house model but the house has no heated area yet. */
+    /** Wants the house model but there is no area to compute on yet. */
     needsArea: wantsHouse && !fromHouse,
     kwhByMonth,
     months: active,

@@ -64,8 +64,35 @@ export const DEFAULT_SETTINGS: Settings = {
   scenarios: { pv_sizes_kwp: [3, 4.5, 6, 7.5, 9], battery_sizes_kwh: [5, 10, 15] },
   consumption: { meter_entity_id: null, annual_kwh: 6200, seasonal_profile: "pdc_heating" },
   // Zone C is a guess for San Cipriano Picentino; the real backend proposes it from the location.
-  house: { climate_zone: "C", heated_area_m2: 100, insulation: "medium", emitter: "fancoil" },
+  // Seminterrato: emitter assumed (PDC zone 2), area still to enter.
+  house: {
+    climate_zone: "C",
+    insulation: "medium",
+    heat_pump: "daikin_altherma3_rf_11",
+    zones: [
+      { name: "Piano terra", area_m2: 88, emitter: "fancoil", cooling: true },
+      { name: "Seminterrato", area_m2: null, emitter: "floor", cooling: false },
+    ],
+  },
 };
+
+/** Saves from before zones had one heated area and one emitter. */
+type LegacyHouse = Partial<HouseSettings> & { heated_area_m2?: number | null; emitter?: Emitter };
+
+function migrateHouse(h: LegacyHouse | undefined, d: HouseSettings): HouseSettings {
+  if (!h) return d;
+  const zones =
+    h.zones ??
+    (h.emitter
+      ? [{ name: "Casa", area_m2: h.heated_area_m2 ?? null, emitter: h.emitter, cooling: h.emitter !== "radiators" }]
+      : d.zones);
+  return {
+    climate_zone: h.climate_zone ?? d.climate_zone,
+    insulation: h.insulation ?? d.insulation,
+    heat_pump: h.heat_pump ?? (h.zones ? d.heat_pump : "generic"),
+    zones,
+  };
+}
 
 function withDefaults(s: Partial<Settings> | undefined): Settings {
   const d = structuredClone(DEFAULT_SETTINGS);
@@ -76,7 +103,7 @@ function withDefaults(s: Partial<Settings> | undefined): Settings {
     lifetime: { ...d.lifetime, ...s.lifetime },
     scenarios: normalizeSizes({ ...d.scenarios, ...s.scenarios }, d.scenarios),
     consumption: { ...d.consumption, ...s.consumption },
-    house: { ...d.house, ...s.house },
+    house: migrateHouse(s.house, d.house),
   };
 }
 
@@ -105,25 +132,46 @@ const HEATING_PERIOD: Record<ClimateZone, number[]> = {
 /** Heating need per day relative to January. */
 const HDD_SHAPE = [1, 0.9, 0.7, 0.45, 0.25, 0.08, 0.03, 0.03, 0.15, 0.35, 0.6, 0.9];
 const NEED_PER_GG: Record<Insulation, number> = { good: 0.02, medium: 0.045, poor: 0.08 };
-const SCOP: Record<Emitter, number> = { floor: 4.0, fancoil: 3.5, radiators: 2.8 };
 const SCOP_ZONE: Record<ClimateZone, number> = { A: 0.2, B: 0.2, C: 0, D: 0, E: -0.3, F: -0.3 };
 const COOLING_KWH_M2: Record<ClimateZone, number> = { A: 40, B: 35, C: 30, D: 22, E: 12, F: 5 };
 const COOLING_INSULATION: Record<Insulation, number> = { good: 0.7, medium: 1, poor: 1.3 };
 const COOLING_SHAPE = [0, 0, 0, 0, 0, 0.15, 0.35, 0.35, 0.15, 0, 0, 0];
-const SEER = 4.5;
+
+interface HeatPump {
+  id: string;
+  label: string;
+  /** SCOP by emitter, average climate (EN 14825); floor = 35 °C flow, radiators = 55 °C, fancoil in between. */
+  scop: Record<Emitter, number>;
+  seer: number;
+}
+
+const HEAT_PUMPS: HeatPump[] = [
+  { id: "generic", label: "Generica", scop: { floor: 4.0, fancoil: 3.5, radiators: 2.8 }, seer: 4.5 },
+  // Daikin datasheet ERLA11DV3 + EBVX11S23D6V: SCOP 4.72 at 35 °C, 3.27 at 55 °C. No SEER published: typical value.
+  { id: "daikin_altherma3_rf_11", label: "Altherma 3 RF 11 kW", scop: { floor: 4.72, fancoil: 4.0, radiators: 3.27 }, seer: 4.5 },
+];
 
 function houseModel(h: HouseSettings): HouseModel {
   const zone = ZONE_GG[h.climate_zone] ? h.climate_zone : "C";
   const gg = ZONE_GG[zone];
+  const pump = HEAT_PUMPS.find((p) => p.id === h.heat_pump) ?? HEAT_PUMPS[0];
   const heatWeights = normalize(HDD_SHAPE.map((v, m) => v * HEATING_PERIOD[zone][m] * DAYS_IN_MONTH[m]));
   const heatTotal = gg * (NEED_PER_GG[h.insulation] ?? NEED_PER_GG.medium);
   const coolTotal = COOLING_KWH_M2[zone] * (COOLING_INSULATION[h.insulation] ?? 1);
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  const sized = h.zones.filter((z) => z.area_m2 !== null && z.area_m2 > 0);
+  const heated = sized.reduce((a, z) => a + z.area_m2!, 0);
+  const cooled = sized.filter((z) => z.cooling && z.emitter !== "radiators").reduce((a, z) => a + z.area_m2!, 0);
+  // Same thermal need per m² everywhere, each zone at its own flow temperature: electric = Σ area ÷ SCOP.
+  const scopOf = (e: Emitter) => (pump.scop[e] ?? pump.scop.fancoil) + SCOP_ZONE[zone];
+  const scop = heated ? heated / sized.reduce((a, z) => a + z.area_m2! / scopOf(z.emitter), 0) : scopOf(h.zones[0]?.emitter ?? "fancoil");
   return {
     heating_kwh_th_m2: heatWeights.map((w) => r3(w * heatTotal)),
     cooling_kwh_th_m2: normalize(COOLING_SHAPE).map((w) => r3(w * coolTotal)),
-    scop: round2((SCOP[h.emitter] ?? SCOP.fancoil) + SCOP_ZONE[zone]),
-    seer: SEER,
+    heated_area_m2: heated || null,
+    cooled_area_m2: heated ? cooled : null,
+    scop: round2(scop),
+    seer: pump.seer,
     gg,
   };
 }
@@ -238,6 +286,7 @@ export const DEFAULT_LOADS: LoadDef[] = [
   { id: "lavastoviglie", kind: "cycle", name: "Lavastoviglie", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.0, duration_h: 3, cycles_per_week: 5, usual_time: "evening", shiftable: true, window_start: 9, window_end: 18, after: null },
   { id: "acs", kind: "cycle", name: "Acqua calda (PDC)", source: "sensor", sensor_entity_id: "sensor.demo_acs_energia", kwh_per_cycle: 2.4, duration_h: 2, cycles_per_week: 7, usual_time: "morning", shiftable: true, window_start: 10, window_end: 16, after: null },
   { id: "pdc_riscaldamento", kind: "continuous", name: "PDC riscaldamento", source: "estimate", sensor_entity_id: null, use: "heating", basis: "house", area_m2: null, kwh_per_day: 12, months: [11, 12, 1, 2, 3], hour_profile: "heating", shiftable: true, shift_share: 0.3, shift_advance_h: 3 },
+  { id: "pdc_raffrescamento", kind: "continuous", name: "PDC raffrescamento", source: "estimate", sensor_entity_id: null, use: "cooling", basis: "house", area_m2: null, kwh_per_day: 6, months: [6, 7, 8, 9], hour_profile: "cooling", shiftable: true, shift_share: 0.3, shift_advance_h: 2 },
 ];
 
 type Prices = { grid: number; fixedAnnual: number; rid: number };
@@ -296,7 +345,7 @@ function pickWeighted(weights: number[], r: number): number {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 function toLoadCfgs(loads: LoadDef[], house: HouseSettings): { cycles: CycleCfg[]; conts: ContCfg[] } {
-  const ctx = { detected: DETECTED, house, model: houseModel(house) };
+  const ctx = { detected: DETECTED, model: houseModel(house) };
   const cycleLoads = loads.filter((l): l is CycleLoad => l.kind === "cycle");
   const cycles = cycleLoads.map((l): CycleCfg => {
     const use = effectiveUsage(l, DETECTED);
@@ -724,6 +773,7 @@ export class DemoBackend {
       detected: DETECTED,
       sensor_options: SENSOR_OPTIONS,
       meter_options: METER_OPTIONS,
+      heat_pump_options: HEAT_PUMPS.map(({ id, label }) => ({ id, label })),
       derived: { grid_price_eur_kwh: prices.grid, fixed_annual_eur: round2(prices.fixedAnnual), house: houseModel(this.settings.house) },
     };
   }

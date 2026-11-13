@@ -54,12 +54,22 @@ export type ClimateZone = "A" | "B" | "C" | "D" | "E" | "F";
 export type Insulation = "good" | "medium" | "poor";
 export type Emitter = "floor" | "fancoil" | "radiators";
 
+/** Part of the heating system with one kind of emitter (mixed systems have several). */
+export interface HouseZone {
+  name: string;
+  area_m2: number | null;
+  emitter: Emitter;
+  /** Also cooled in summer (never with radiators). */
+  cooling: boolean;
+}
+
 /** What heat pump and air conditioning estimates are computed from. */
 export interface HouseSettings {
   climate_zone: ClimateZone;
-  heated_area_m2: number | null;
   insulation: Insulation;
-  emitter: Emitter;
+  /** Id from PanelConfig.heat_pump_options; "generic" uses typical values per emitter. */
+  heat_pump: string;
+  zones: HouseZone[];
 }
 
 export interface Settings {
@@ -166,6 +176,7 @@ export interface PanelConfig {
   sensor_options: SensorOption[];
   /** Whole-house meters; the grid import of the Energy dashboard comes first. */
   meter_options: SensorOption[];
+  heat_pump_options: { id: string; label: string }[];
   derived: { grid_price_eur_kwh: number; fixed_annual_eur: number; house: HouseModel };
 }
 
@@ -174,7 +185,11 @@ export interface HouseModel {
   /** Thermal kWh per m², 12 months. */
   heating_kwh_th_m2: number[];
   cooling_kwh_th_m2: number[];
-  /** Seasonal efficiencies: electric kWh = thermal kWh ÷ scop (or seer). */
+  /** Sum of the zones with an area; null when none has one. */
+  heated_area_m2: number | null;
+  /** Zones that also cool; 0 when none does. */
+  cooled_area_m2: number | null;
+  /** Seasonal efficiencies of the chosen heat pump: electric kWh = thermal kWh ÷ scop (or seer). SCOP is area-weighted over the zones. */
   scop: number;
   seer: number;
   /** Heating degree days of the climate zone. */

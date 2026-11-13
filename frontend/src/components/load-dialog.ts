@@ -3,9 +3,9 @@ import { live } from "lit/directives/live.js";
 import type { ContinuousLoad, CycleLoad, HourProfile, LoadDef, PanelConfig, UsualTime } from "../api/types";
 import { hourOptions, numberField, selectField, switchField } from "../fields";
 import { MONTHS, formatters, type Formatters } from "../format";
-import { houseSummary, houseUsagePhrase, servedArea } from "../house";
+import { houseSummary, houseUsagePhrase } from "../house";
 import { LOAD_LIMITS, LOAD_PRESETS, OTHER_CONTINUOUS, OTHER_CYCLE, type LoadPreset } from "../load-presets";
-import { HOUR_PROFILE_LABEL, USUAL_TIME_LABEL, continuousUsage, createsLoop, effectiveUsage, monthsLabel, usageContext, usualPhrase } from "../loads";
+import { HOUR_PROFILE_LABEL, USUAL_TIME_LABEL, continuousUsage, createsLoop, effectiveUsage, monthsLabel, servedArea, usageContext, usualPhrase } from "../loads";
 import { shared } from "../styles";
 
 const NEW_ID = "__new__";
@@ -554,23 +554,32 @@ export class PvLoadDialog extends LitElement {
 
   private renderFromHouse(f: Formatters, d: ContinuousLoad, use: ReturnType<typeof continuousUsage>) {
     const h = this.config.settings.house;
+    const model = this.config.derived.house;
+    const cooling = d.use === "cooling";
     const max = Math.max(0.1, ...use.kwhByMonth);
     return html`
-      ${d.use === "cooling"
+      ${cooling
         ? numberField("Superficie servita", d.area_m2, "m²", this.locale, (v) => this.patch({ area_m2: v }), {
             ...LOAD_LIMITS.area_m2,
-            placeholder: h.heated_area_m2 !== null ? `${h.heated_area_m2} (tutta)` : "",
+            placeholder: model.cooled_area_m2 ? `${model.cooled_area_m2} (zone)` : "",
             onClear: () => this.patch({ area_m2: null }),
-            hint: "Solo le stanze raffrescate; vuoto vuol dire tutta la casa",
+            hint: "Vuoto vuol dire le zone della casa che raffrescano",
           })
         : nothing}
       ${use.needsArea
         ? html`<div class="banner small stack" role="status">
-            <span>Per calcolarlo dalla casa manca la superficie riscaldata: intanto uso i kWh al giorno qui sotto.</span>
-            <span><button class="link edit-house" @click=${this.editHouse}>Inserisci la superficie</button></span>
+            <span>
+              ${cooling
+                ? "Nessuna zona della casa raffresca: scrivi la superficie servita, oppure attiva «Raffresca» su una zona."
+                : "Per calcolarlo dalla casa manca la superficie delle zone."}
+              Intanto uso i kWh al giorno qui sotto.
+            </span>
+            <span><button class="link edit-house" @click=${this.editHouse}>Completa la casa</button></span>
           </div>`
         : html`<div class="measured">
-            <p><span class="strong">${houseSummary(h, f, { area: servedArea(d, h), emitter: d.use === "heating" })}</span>: ${houseUsagePhrase(f, use)}</p>
+            <p>
+              <span class="strong">${houseSummary(h, model, f, { area: servedArea(d, model), heating: !cooling })}</span>: ${houseUsagePhrase(f, use)}
+            </p>
             <div class="hist" role="img" aria-label="Consumo al giorno stimato mese per mese">
               ${use.kwhByMonth.map((v, m) => html`<span style="height:${(v / max) * 100}%" title="${MONTHS[m]}: ${f.num(v)} kWh/giorno"></span>`)}
             </div>
