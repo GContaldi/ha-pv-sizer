@@ -5,18 +5,23 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from . import websocket
 from .const import DOMAIN
+from .coordinator import PvSizerCoordinator
 from .panel import async_register_panel, async_unregister_panel
 from .storage import PvSizerStore
 
-type PvSizerConfigEntry = ConfigEntry[PvSizerStore]
+type PvSizerConfigEntry = ConfigEntry[PvSizerCoordinator]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PvSizerConfigEntry) -> bool:
     store = PvSizerStore(hass)
     await store.async_load()
-    entry.runtime_data = store
-    hass.data[DOMAIN] = store
+    coordinator = PvSizerCoordinator(hass, store)
+    await coordinator.async_setup()
+    entry.runtime_data = coordinator
+    hass.data[DOMAIN] = coordinator
+    websocket.async_setup(hass)
     await async_register_panel(hass)
     return True
 
