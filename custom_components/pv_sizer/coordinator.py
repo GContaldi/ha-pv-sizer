@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .engine.common import HORIZON_YEARS, round2
 from .engine.consumption import MeterHistory
+from .engine.detect import detect_load
 from .engine.history import day_shapes, meter_history, valid_days
 from .engine.house import heat_pump_options
 from .engine.results import Engine, Inputs
@@ -44,6 +45,7 @@ class PvSizerCoordinator:
         self.meter: MeterHistory | None = None
         self.day_shapes: list[list[list[float]]] | None = None
         self.detected: list[dict[str, Any]] = []
+        self._detected_key: tuple[Any, ...] | None = None
         self.sensor_options: list[dict[str, str]] = []
         self.meter_options: list[dict[str, str]] = []
 
@@ -75,8 +77,27 @@ class PvSizerCoordinator:
         self.meter_options = _options(prefs.grid_imports, stats, prefs.not_loads | set(prefs.devices))
         self.sensor_options = _options(prefs.devices, stats, prefs.not_loads)
         self.meter, self.day_shapes = await self._async_meter(meter_id, sensors & set(stats), today)
+        option_ids = tuple(o["entity_id"] for o in self.sensor_options)
+        if self._detected_key != (option_ids, today):
+            self.detected = await self._async_detect(option_ids, today)
+            self._detected_key = (option_ids, today)
         self._data_key = key
         self.data_version += 1
+
+    async def _async_detect(self, statistic_ids: tuple[str, ...], today: date) -> list[dict[str, Any]]:
+        """One sensor at a time: a year of hourly rows for every option at once would weigh on small boxes."""
+        tz = dt_util.get_default_time_zone()
+        end = dt_util.start_of_local_day(today)
+        start = dt_util.start_of_local_day(today - timedelta(days=HISTORY_DAYS))
+        detected = []
+        for sid in statistic_ids:
+            hourly = (await async_hourly_changes(self.hass, {sid}, start, end)).get(sid)
+            if not hourly:
+                continue
+            found = await self.hass.async_add_executor_job(detect_load, sid, hourly, tz)
+            if found:
+                detected.append(found)
+        return detected
 
     async def _async_meter(
         self, meter_id: str | None, sensors: set[str], today: date

@@ -81,6 +81,8 @@ async def test_meter_history_from_the_energy_dashboard(hass: HomeAssistant, hass
     assert cfg["meter_options"][0] == {"entity_id": GRID, "name": "Prelievo rete"}
     assert EXPORT not in {o["entity_id"] for o in cfg["meter_options"] + cfg["sensor_options"]}
     assert cfg["sensor_options"][0]["entity_id"] == WASHER
+    # A flat draw is neither cycles nor a daily load.
+    assert cfg["detected"] == []
     data = cfg["data"]
     assert data["source"] == "mixed"
     assert data["pattern_source"] == "sensor"
