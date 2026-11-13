@@ -318,14 +318,21 @@ export class PvSizerPanel extends LitElement {
     void this.loadDetail();
   }
 
-  private async onSettings(e: CustomEvent<Settings>) {
-    const cfg = await this.run(() => updateSettings(this.hass!, e.detail));
+  /** Shows the edit right away, so fields keep their new value while the backend saves and recalculates. */
+  private async save(edit: Partial<PanelConfig>, send: () => Promise<PanelConfig>) {
+    const before = this.config;
+    if (before) this.config = { ...before, ...edit };
+    const cfg = await this.run(send);
     if (cfg) await this.refresh(cfg);
+    else this.config = before;
   }
 
-  private async onLoads(e: CustomEvent<LoadDef[]>) {
-    const cfg = await this.run(() => updateLoads(this.hass!, e.detail));
-    if (cfg) await this.refresh(cfg);
+  private onSettings(e: CustomEvent<Settings>) {
+    void this.save({ settings: e.detail }, () => updateSettings(this.hass!, e.detail));
+  }
+
+  private onLoads(e: CustomEvent<LoadDef[]>) {
+    void this.save({ loads: e.detail }, () => updateLoads(this.hass!, e.detail));
   }
 
   private shiftToggle() {

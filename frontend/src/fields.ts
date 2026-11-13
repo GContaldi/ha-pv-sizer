@@ -1,6 +1,27 @@
-import { html, nothing, type TemplateResult } from "lit";
+import { html, noChange, nothing, type TemplateResult } from "lit";
+import { Directive, PartType, directive, type PartInfo, type PropertyPart } from "lit/directive.js";
 import { live } from "lit/directives/live.js";
 import { parseNumber } from "./format";
+
+/** Like `live`, but skips the field that has focus: re-renders during a save must not wipe what the user is typing. */
+class FieldValue extends Directive {
+  constructor(part: PartInfo) {
+    super(part);
+    if (part.type !== PartType.PROPERTY) throw new Error("fieldValue only binds .value");
+  }
+
+  render(value: string) {
+    return value;
+  }
+
+  update(part: PropertyPart, [value]: [string]) {
+    const input = part.element as HTMLInputElement;
+    if (!input.matches(":focus") && input.value !== value) input.value = value;
+    return noChange;
+  }
+}
+
+export const fieldValue = directive(FieldValue);
 
 export interface NumberOptions {
   min?: number;
@@ -35,7 +56,7 @@ export function numberField(
           inputmode="decimal"
           title=${range}
           placeholder=${opts.placeholder ?? ""}
-          .value=${live(text)}
+          .value=${fieldValue(text)}
           @change=${(e: Event) => {
             const input = e.target as HTMLInputElement;
             let v = parseNumber(input.value);

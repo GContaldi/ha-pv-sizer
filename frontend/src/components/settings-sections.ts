@@ -1,8 +1,7 @@
 import { css, html, nothing, type TemplateResult } from "lit";
-import { live } from "lit/directives/live.js";
 import type { ClimateZone, Emitter, HouseZone, Insulation, PanelConfig, PvRoof, ScenarioSizes, SeasonalProfile, Settings } from "../api/types";
 import { SEASONAL_LABEL, formatDate, joinMonths, statusSentence } from "../consumption";
-import { numberField, selectField, switchField } from "../fields";
+import { fieldValue, numberField, selectField, switchField } from "../fields";
 import { MONTHS, parseNumber, type Formatters } from "../format";
 import { EMITTER_LABEL, INSULATION_HINT, INSULATION_LABEL, ZONE_LABEL } from "../house";
 import { continuousUsage, usageContext } from "../loads";
@@ -74,7 +73,7 @@ function renderZones(ctx: SectionContext) {
             class="zone-name"
             type="text"
             aria-label="Nome della zona"
-            .value=${live(z.name)}
+            .value=${fieldValue(z.name)}
             @change=${(e: Event) => patchZone(i, { name: (e.target as HTMLInputElement).value.trim() || `Zona ${i + 1}` })}
           />
           ${zones.length > 1
@@ -198,17 +197,28 @@ function renderTariff(ctx: SectionContext) {
   const set = setter(ctx, "tariff");
   const loc = ctx.locale;
   return html`<div class="card">
-    ${numberField("Energia (vendita + rete)", t.energy_price, "€/kWh", loc, set("energy_price"), {
-      hint: "Materia energia + trasporto, la parte in €/kWh della bolletta",
-    })}
-    ${numberField("Accise", t.excise, "€/kWh", loc, set("excise"))}
-    ${numberField("IVA", t.vat_pct, "%", loc, set("vat_pct"))}
-    ${numberField("Quota fissa", t.fixed_monthly, "€/mese", loc, set("fixed_monthly"))}
-    ${numberField("Quota potenza", t.power_fee, "€/kW/mese", loc, set("power_fee"))}
-    ${numberField("Potenza contatore", t.power_kw, "kW", loc, set("power_kw"))}
-    ${numberField("Ritiro dedicato", t.export_price, "€/kWh", loc, set("export_price"), { hint: "Quanto ti paga il GSE per ogni kWh immesso" })}
-    <p class="small muted note">Costi fissi uguali in tutti gli scenari: il FV riduce solo la parte in €/kWh.</p>
-  </div>`;
+      ${cardHead("Il tuo contratto", "Dipendono dall'offerta e dal contatore: copiali dalla bolletta.")}
+      ${numberField("Energia (vendita + rete)", t.energy_price, "€/kWh", loc, set("energy_price"), {
+        hint: "Prezzo dell'offerta più trasporto e oneri: tutta la parte in €/kWh della bolletta",
+      })}
+      ${numberField("Quota fissa", t.fixed_monthly, "€/mese", loc, set("fixed_monthly"), {
+        hint: "Commercializzazione del venditore più la quota fissa di rete",
+      })}
+      ${numberField("Potenza contatore", t.power_kw, "kW", loc, set("power_kw"))}
+    </div>
+    <div class="card">
+      ${cardHead("Uguali per tutti", "Li fissano ARERA e lo Stato per tutti i clienti domestici, di solito cambiano a gennaio: non serve toccarli.")}
+      ${numberField("Quota potenza", t.power_fee, "€/kW/mese", loc, set("power_fee"), { hint: "ARERA, trasporto e gestione del contatore" })}
+      ${numberField("Accise", t.excise, "€/kWh", loc, set("excise"), { hint: "Stato" })}
+      ${numberField("IVA", t.vat_pct, "%", loc, set("vat_pct"), { hint: "Stato, 10% per la casa" })}
+    </div>
+    <div class="card">
+      ${cardHead("Energia immessa")}
+      ${numberField("Ritiro dedicato", t.export_price, "€/kWh", loc, set("export_price"), {
+        hint: "Quanto ti paga il GSE per ogni kWh immesso: segue il prezzo di mercato",
+      })}
+      <p class="small muted note">Costi fissi uguali in tutti gli scenari: il FV riduce solo la parte in €/kWh.</p>
+    </div>`;
 }
 
 const ORIENTATIONS = [
