@@ -43,6 +43,8 @@ export function houseSummary(h: HouseSettings, f: Formatters, opts: { area?: num
 }
 
 const perDay = (f: Formatters, v: number) => f.num(v, v < 10 ? 1 : 0);
+/** "a gennaio", "ad aprile". */
+const inMonth = (m: number) => `${MONTH_NAMES[m - 1].startsWith("a") ? "ad" : "a"} ${MONTH_NAMES[m - 1]}`;
 
 /** "circa 1480 kWh l'anno, da 3,9 kWh/giorno a novembre a 13 a gennaio" */
 export function houseUsagePhrase(f: Formatters, use: { kwhByMonth: number[]; months: number[]; yearKwh: number }): string {
@@ -53,7 +55,7 @@ export function houseUsagePhrase(f: Formatters, use: { kwhByMonth: number[]; mon
   const range =
     hi.v - lo.v < 0.5
       ? `circa ${perDay(f, hi.v)} kWh/giorno`
-      : `da ${perDay(f, lo.v)} kWh/giorno a ${MONTH_NAMES[lo.m - 1]} a ${perDay(f, hi.v)} a ${MONTH_NAMES[hi.m - 1]}`;
+      : `da ${perDay(f, lo.v)} kWh/giorno ${inMonth(lo.m)} a ${perDay(f, hi.v)} ${inMonth(hi.m)}`;
   return `circa ${f.kwh(roughKwh(use.yearKwh))} l'anno, ${range}`;
 }
 

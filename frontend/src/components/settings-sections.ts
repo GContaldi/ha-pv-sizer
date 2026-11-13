@@ -288,6 +288,9 @@ function renderNotes() {
 
 const SOURCE_WORD = { measured: "misurati", mixed: "in parte misurati", estimate: "stimati", missing: "" } as const;
 
+const exceedWarning = (months: number[]) =>
+  `I carichi superano il consumo ${months.length <= 2 ? `di ${joinMonths(months)}` : `in ${months.length} mesi`}`;
+
 const range = (f: Formatters, values: number[], unit: string) =>
   values.length === 1 ? `${f.num(values[0])} ${unit}` : `da ${f.num(Math.min(...values))} a ${f.num(Math.max(...values))} ${unit}`;
 
@@ -330,7 +333,7 @@ export const SECTIONS = {
     },
     warnings: ({ config: c }) => [
       ...(c.loads.some((l) => l.source === "sensor" && !l.sensor_entity_id) ? ["Sensore da scegliere"] : []),
-      ...(c.data.loads_exceed_months.length ? [`I carichi superano il consumo di ${joinMonths(c.data.loads_exceed_months)}`] : []),
+      ...(c.data.loads_exceed_months.length ? [exceedWarning(c.data.loads_exceed_months)] : []),
     ],
     render: renderLoads,
   },

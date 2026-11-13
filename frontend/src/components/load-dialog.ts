@@ -565,10 +565,9 @@ export class PvLoadDialog extends LitElement {
           })
         : nothing}
       ${use.needsArea
-        ? html`<div class="banner small" role="status">
-            Per calcolarlo dalla casa manca la superficie riscaldata.
-            <button class="link" @click=${this.editHouse}>Inseriscila in Casa e consumi</button>
-            Intanto uso i kWh al giorno qui sotto.
+        ? html`<div class="banner small stack" role="status">
+            <span>Per calcolarlo dalla casa manca la superficie riscaldata: intanto uso i kWh al giorno qui sotto.</span>
+            <span><button class="link edit-house" @click=${this.editHouse}>Inserisci la superficie</button></span>
           </div>`
         : html`<div class="measured">
             <p><span class="strong">${houseSummary(h, f, { area: servedArea(d, h), emitter: d.use === "heating" })}</span>: ${houseUsagePhrase(f, use)}</p>
