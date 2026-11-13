@@ -3,6 +3,7 @@ import { live } from "lit/directives/live.js";
 import type { ContinuousLoad, CycleLoad, HourProfile, LoadDef, PanelConfig, UsualTime } from "../api/types";
 import { hourOptions, numberField, selectField, switchField } from "../fields";
 import { MONTHS, formatters, type Formatters } from "../format";
+import { houseSummary, houseUsagePhrase, servedArea } from "../house";
 import { LOAD_LIMITS, LOAD_PRESETS, OTHER_CONTINUOUS, OTHER_CYCLE, type LoadPreset } from "../load-presets";
 import { HOUR_PROFILE_LABEL, USUAL_TIME_LABEL, continuousUsage, createsLoop, effectiveUsage, monthsLabel, usageContext, usualPhrase } from "../loads";
 import { shared } from "../styles";
@@ -278,6 +279,44 @@ export class PvLoadDialog extends LitElement {
         outline: 2px solid var(--primary-color);
         outline-offset: 1px;
       }
+      .segmented {
+        display: flex;
+        width: fit-content;
+        max-width: 100%;
+        margin: 4px 0 8px;
+        border: 1px solid var(--divider-color);
+        border-radius: 20px;
+        overflow: hidden;
+      }
+      .segmented button {
+        font: inherit;
+        font-size: 14px;
+        min-height: 40px;
+        padding: 0 16px;
+        border: none;
+        background: none;
+        color: var(--primary-text-color);
+        cursor: pointer;
+      }
+      .segmented button + button {
+        border-left: 1px solid var(--divider-color);
+      }
+      .segmented button[aria-checked="true"] {
+        background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+        color: var(--primary-color);
+        font-weight: 500;
+      }
+      .segmented button:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: -2px;
+      }
+      .measured .banner,
+      .mode > .banner {
+        margin: 8px 0;
+      }
+      button.link.edit-house {
+        margin-top: 8px;
+      }
       .error {
         color: var(--error-color);
         font-size: 12px;
@@ -371,7 +410,7 @@ export class PvLoadDialog extends LitElement {
     const out: { name?: string; window?: string; months?: string } = {};
     if (!d.name.trim()) out.name = "Dai un nome al carico";
     if (d.kind === "continuous") {
-      if (d.source === "estimate" && d.months.length === 0) out.months = "Scegli almeno un mese";
+      if (d.source === "estimate" && d.months.length === 0 && !continuousUsage(d, usageContext(this.config)).fromHouse) out.months = "Scegli almeno un mese";
     } else if (d.shiftable) {
       const hours = effectiveUsage(d, this.config.detected).hours;
       if (d.window_end <= d.window_start) out.window = "L'ora di fine deve venire dopo quella di inizio";
@@ -504,8 +543,67 @@ export class PvLoadDialog extends LitElement {
     this.patch({ months });
   }
 
+  private editHouse() {
+    this.close();
+    this.dispatchEvent(new CustomEvent<string>("navigate", { detail: "impostazioni/casa", bubbles: true, composed: true }));
+  }
+
+  private basisOption(d: ContinuousLoad, value: ContinuousLoad["basis"], label: string) {
+    return html`<button role="radio" aria-checked=${d.basis === value} @click=${() => this.patch({ basis: value })}>${label}</button>`;
+  }
+
+  private renderFromHouse(f: Formatters, d: ContinuousLoad, use: ReturnType<typeof continuousUsage>) {
+    const h = this.config.settings.house;
+    const max = Math.max(0.1, ...use.kwhByMonth);
+    return html`
+      ${d.use === "cooling"
+        ? numberField("Superficie servita", d.area_m2, "m²", this.locale, (v) => this.patch({ area_m2: v }), {
+            ...LOAD_LIMITS.area_m2,
+            placeholder: h.heated_area_m2 !== null ? `${h.heated_area_m2} (tutta)` : "",
+            onClear: () => this.patch({ area_m2: null }),
+            hint: "Solo le stanze raffrescate; vuoto vuol dire tutta la casa",
+          })
+        : nothing}
+      ${use.needsArea
+        ? html`<div class="banner small" role="status">
+            Per calcolarlo dalla casa manca la superficie riscaldata.
+            <button class="link" @click=${this.editHouse}>Inseriscila in Casa e consumi</button>
+            Intanto uso i kWh al giorno qui sotto.
+          </div>`
+        : html`<div class="measured">
+            <p><span class="strong">${houseSummary(h, f, { area: servedArea(d, h), emitter: d.use === "heating" })}</span>: ${houseUsagePhrase(f, use)}</p>
+            <div class="hist" role="img" aria-label="Consumo al giorno stimato mese per mese">
+              ${use.kwhByMonth.map((v, m) => html`<span style="height:${(v / max) * 100}%" title="${MONTHS[m]}: ${f.num(v)} kWh/giorno"></span>`)}
+            </div>
+            <div class="hist-axis months">${MONTHS.map((m) => html`<span>${m[0]}</span>`)}</div>
+            <button class="link edit-house" @click=${this.editHouse}>Modifica la casa</button>
+          </div>`}
+    `;
+  }
+
   private renderContinuousEstimate(d: ContinuousLoad, monthsError?: string) {
     const f = formatters(this.locale);
+    const use = continuousUsage(d, usageContext(this.config));
+    const fromHouse = d.use !== null && d.basis === "house";
+    return html`
+      ${d.use
+        ? html`<div class="segmented" role="radiogroup" aria-label="Come lo stimo">
+            ${this.basisOption(d, "house", "Dalla casa (consigliato)")} ${this.basisOption(d, "manual", "kWh al giorno")}
+          </div>`
+        : nothing}
+      ${fromHouse ? this.renderFromHouse(f, d, use) : nothing}
+      ${!fromHouse || use.needsArea ? this.renderManual(f, d, monthsError) : nothing}
+      ${selectField(
+        "Quando consuma",
+        d.hour_profile,
+        (Object.keys(HOUR_PROFILE_LABEL) as HourProfile[]).map((k) => ({ value: k, label: HOUR_PROFILE_LABEL[k] })),
+        (v) => this.patch({ hour_profile: v as HourProfile }),
+        "Riscaldamento di solito mattina e sera, raffrescamento il pomeriggio",
+      )}
+    `;
+  }
+
+  private renderManual(f: Formatters, d: ContinuousLoad, monthsError?: string) {
     const days = d.months.reduce((a, m) => a + DAYS_IN_MONTH[m - 1], 0);
     return html`
       ${numberField("Consumo al giorno", d.kwh_per_day, "kWh/giorno", this.locale, (v) => this.patch({ kwh_per_day: v }), {
@@ -530,13 +628,6 @@ export class PvLoadDialog extends LitElement {
         </div>
       </div>
       ${monthsError ? html`<p class="error" role="alert">${monthsError}</p>` : nothing}
-      ${selectField(
-        "Quando consuma",
-        d.hour_profile,
-        (Object.keys(HOUR_PROFILE_LABEL) as HourProfile[]).map((k) => ({ value: k, label: HOUR_PROFILE_LABEL[k] })),
-        (v) => this.patch({ hour_profile: v as HourProfile }),
-        "Riscaldamento di solito mattina e sera, raffrescamento il pomeriggio",
-      )}
     `;
   }
 
@@ -653,7 +744,11 @@ export class PvLoadDialog extends LitElement {
           ${this.sourceCard(
             "estimate",
             "Lo stimo io",
-            d.kind === "cycle" ? "Scrivi consumo per ciclo e quante volte lo usi" : "Scrivi quanto consuma al giorno e in quali mesi",
+            d.kind === "cycle"
+              ? "Scrivi consumo per ciclo e quante volte lo usi"
+              : d.use
+                ? "Lo calcolo dalla casa, oppure scrivi quanto consuma al giorno"
+                : "Scrivi quanto consuma al giorno e in quali mesi",
           )}
         </div>
         <div class="mode">

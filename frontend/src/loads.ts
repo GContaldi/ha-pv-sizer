@@ -29,7 +29,7 @@ export const usageContext = (c: PanelConfig): UsageContext => ({ detected: c.det
  */
 export function continuousUsage(load: ContinuousLoad, ctx: UsageContext) {
   const measured = sensorStats(load, ctx.detected)?.continuous;
-  const wantsHouse = !measured && load.source === "estimate" && load.basis === "house" && load.use !== null;
+  const wantsHouse = !measured && load.basis === "house" && load.use !== null;
   const area = load.area_m2 ?? ctx.house.heated_area_m2;
   const fromHouse = wantsHouse && area !== null && area > 0;
   let kwhByMonth: number[];

@@ -103,14 +103,18 @@ export class PvLoadsList extends LitElement {
 
   private usageLine(f: Formatters, l: LoadDef): string {
     let usage: string;
+    let fromHouse = false;
     if (l.kind === "cycle") {
       const use = effectiveUsage(l, this.config.detected);
       usage = `${f.num(use.perWeek, 0)}/sett · ${f.num(use.kwh)} kWh`;
     } else {
       const use = continuousUsage(l, usageContext(this.config));
-      usage = `${f.num(use.perDay)} kWh/giorno · ${monthsLabel(use.months)}`;
+      fromHouse = use.fromHouse;
+      usage = fromHouse
+        ? `circa ${f.num(use.yearKwh, 0)} kWh/anno · ${monthsLabel(use.months)}`
+        : `${f.num(use.perDay)} kWh/giorno · ${monthsLabel(use.months)}`;
     }
-    if (l.source === "estimate") return `Stima · ${usage}`;
+    if (l.source === "estimate") return `${fromHouse ? "Dalla casa" : "Stima"} · ${usage}`;
     if (!l.sensor_entity_id) return `Sensore da scegliere · intanto stima: ${usage}`;
     const sensor = this.config.sensor_options.find((o) => o.entity_id === l.sensor_entity_id)?.name ?? l.sensor_entity_id;
     return `Sensore · ${sensor} · ${usage}`;
@@ -134,7 +138,13 @@ export class PvLoadsList extends LitElement {
               (l) => html`<li>
                 <button class="load" aria-label="Modifica ${l.name}" @click=${() => this.dialog.openEdit(l.id)}>
                   <span class="text">
-                    <span class="name">${l.name}${l.source === "sensor" && !l.sensor_entity_id ? html`<span class="warn">Sensore da scegliere</span>` : nothing}</span>
+                    <span class="name"
+                      >${l.name}${l.source === "sensor" && !l.sensor_entity_id
+                        ? html`<span class="warn">Sensore da scegliere</span>`
+                        : l.kind === "continuous" && continuousUsage(l, usageContext(this.config)).needsArea
+                          ? html`<span class="warn">Manca la superficie</span>`
+                          : nothing}</span
+                    >
                     <span class="small muted">${this.usageLine(f, l)}</span>
                     <span class="small muted">${this.shiftLine(f, l)}</span>
                   </span>
