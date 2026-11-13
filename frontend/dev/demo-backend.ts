@@ -74,6 +74,8 @@ export const DEFAULT_SETTINGS: Settings = {
       { name: "Seminterrato", area_m2: null, emitter: "radiators", cooling: false },
     ],
   },
+  // The demo always uses PV_KWH_PER_KWP; the roof only matters with PVGIS.
+  pv: { roofs: [{ tilt_deg: 30, azimuth_deg: 0, loss_pct: 14 }] },
 };
 
 /** Saves from before zones had one heated area and one emitter. */
@@ -104,6 +106,7 @@ function withDefaults(s: Partial<Settings> | undefined): Settings {
     scenarios: normalizeSizes({ ...d.scenarios, ...s.scenarios }, d.scenarios),
     consumption: { ...d.consumption, ...s.consumption },
     house: migrateHouse(s.house, d.house),
+    pv: s.pv?.roofs?.length ? { roofs: s.pv.roofs.map((r) => ({ ...d.pv.roofs[0], ...r })) } : d.pv,
   };
 }
 
@@ -774,6 +777,7 @@ export class DemoBackend {
       sensor_options: SENSOR_OPTIONS,
       meter_options: METER_OPTIONS,
       heat_pump_options: HEAT_PUMPS.map(({ id, label }) => ({ id, label })),
+      pv_yield: { source: "model", year: null, kwh_per_kwp: sum(PV_KWH_PER_KWP), warning: null },
       derived: { grid_price_eur_kwh: prices.grid, fixed_annual_eur: round2(prices.fixedAnnual), house: houseModel(this.settings.house) },
     };
   }

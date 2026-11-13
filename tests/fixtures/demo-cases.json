@@ -65,6 +65,15 @@
        "cooling": false
       }
      ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
+      }
+     ]
     }
    },
    "loads": [
@@ -412,6 +421,15 @@
        "area_m2": null,
        "emitter": "radiators",
        "cooling": false
+      }
+     ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
       }
      ]
     }
@@ -2662,6 +2680,15 @@
        "cooling": false
       }
      ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
+      }
+     ]
     }
    },
    "loads": [
@@ -3011,6 +3038,15 @@
        "cooling": false
       }
      ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
+      }
+     ]
     }
    },
    "loads": [
@@ -3290,6 +3326,15 @@
        "area_m2": 40,
        "emitter": "radiators",
        "cooling": false
+      }
+     ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
       }
      ]
     }
@@ -3674,6 +3719,15 @@
        "area_m2": 40,
        "emitter": "radiators",
        "cooling": false
+      }
+     ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
       }
      ]
     }
@@ -5083,6 +5137,15 @@
        "cooling": false
       }
      ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
+      }
+     ]
     }
    },
    "loads": [
@@ -5455,6 +5518,15 @@
        "area_m2": null,
        "emitter": "radiators",
        "cooling": false
+      }
+     ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
       }
      ]
     }
@@ -7635,6 +7707,15 @@
        "cooling": false
       }
      ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
+      }
+     ]
     }
    },
    "loads": [
@@ -7990,6 +8071,15 @@
        "area_m2": 200,
        "emitter": "radiators",
        "cooling": false
+      }
+     ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
       }
      ]
     }
@@ -8857,6 +8947,15 @@
      "insulation": "medium",
      "heated_area_m2": 100,
      "emitter": "fancoil"
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
+      }
+     ]
     }
    },
    "loads": [
@@ -9126,6 +9225,15 @@
        "area_m2": 100,
        "emitter": "fancoil",
        "cooling": true
+      }
+     ]
+    },
+    "pv": {
+     "roofs": [
+      {
+       "tilt_deg": 30,
+       "azimuth_deg": 0,
+       "loss_pct": 14
       }
      ]
     }

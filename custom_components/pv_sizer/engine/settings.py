@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from .common import is_number, round1
+from .common import clamp, is_number, round1
 
 CLIMATE_ZONES = ("A", "B", "C", "D", "E", "F")
 INSULATIONS = ("good", "medium", "poor")
@@ -47,7 +47,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "heat_pump": "generic",
         "zones": [{"name": "Casa", "area_m2": None, "emitter": "fancoil", "cooling": True}],
     },
+    "pv": {"roofs": [{"tilt_deg": 30, "azimuth_deg": 0, "loss_pct": 14}]},
 }
+
+ROOF_LIMITS = {"tilt_deg": (0, 90), "azimuth_deg": (-180, 180), "loss_pct": (0, 50)}
 
 _CYCLE = {"kind": "cycle", "source": "estimate", "sensor_entity_id": None, "shiftable": True, "after": None}
 _CONTINUOUS = {"kind": "continuous", "source": "estimate", "sensor_entity_id": None, "shiftable": True}
@@ -213,6 +216,16 @@ def migrate_house(h: Any, d: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _pv(saved: Any, d: dict[str, Any]) -> dict[str, Any]:
+    roofs = saved.get("roofs") if isinstance(saved, dict) else None
+    out = []
+    for roof in roofs if isinstance(roofs, list) else []:
+        if isinstance(roof, dict):
+            merged = _merge_numbers(d["roofs"][0], roof)
+            out.append({k: clamp(v, *ROOF_LIMITS[k]) for k, v in merged.items()})
+    return {"roofs": out} if out else copy.deepcopy(d)
+
+
 def with_defaults(s: Any, defaults: dict[str, Any] = DEFAULT_SETTINGS) -> dict[str, Any]:
     d = copy.deepcopy(defaults)
     if not isinstance(s, dict):
@@ -225,6 +238,7 @@ def with_defaults(s: Any, defaults: dict[str, Any] = DEFAULT_SETTINGS) -> dict[s
         "scenarios": normalize_sizes({**d["scenarios"], **scenarios}, d["scenarios"]),
         "consumption": _consumption(s.get("consumption"), d["consumption"]),
         "house": migrate_house(s.get("house"), d["house"]),
+        "pv": _pv(s.get("pv"), d["pv"]),
     }
 
 

@@ -1,6 +1,6 @@
 import { css, html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
-import type { ClimateZone, Emitter, HouseZone, Insulation, PanelConfig, ScenarioSizes, SeasonalProfile, Settings } from "../api/types";
+import type { ClimateZone, Emitter, HouseZone, Insulation, PanelConfig, PvRoof, ScenarioSizes, SeasonalProfile, Settings } from "../api/types";
 import { SEASONAL_LABEL, formatDate, joinMonths, statusSentence } from "../consumption";
 import { numberField, selectField, switchField } from "../fields";
 import { MONTHS, parseNumber, type Formatters } from "../format";
@@ -211,12 +211,56 @@ function renderTariff(ctx: SectionContext) {
   </div>`;
 }
 
+const ORIENTATIONS = [
+  { value: "0", label: "Sud" },
+  { value: "-45", label: "Sud-est" },
+  { value: "45", label: "Sud-ovest" },
+  { value: "-90", label: "Est" },
+  { value: "90", label: "Ovest" },
+];
+
+function orientationLabel(f: Formatters, azimuth: number) {
+  return ORIENTATIONS.find((o) => Number(o.value) === azimuth)?.label ?? `${f.num(azimuth)}°`;
+}
+
+function yieldPhrase(c: PanelConfig, f: Formatters) {
+  const y = c.pv_yield;
+  const kwh = `${f.num(y.kwh_per_kwp, 0)} kWh per kWp in un anno`;
+  return y.source === "pvgis" ? `Produzione da PVGIS, anno ${y.year}: ${kwh}.` : `Produzione tipica del Sud Italia: ${kwh}.`;
+}
+
+function renderRoof(ctx: SectionContext) {
+  const { f, locale: loc } = ctx;
+  const { roofs } = ctx.config.settings.pv;
+  const roof = roofs[0];
+  const y = ctx.config.pv_yield;
+  const patch = (changes: Partial<PvRoof>) =>
+    ctx.emit({ ...ctx.config.settings, pv: { roofs: [{ ...roof, ...changes }, ...roofs.slice(1)] } });
+  const orientations = ORIENTATIONS.some((o) => Number(o.value) === roof.azimuth_deg)
+    ? ORIENTATIONS
+    : [...ORIENTATIONS, { value: String(roof.azimuth_deg), label: orientationLabel(f, roof.azimuth_deg) }];
+  return html`<div class="card">
+    ${cardHead("Tetto", "Dove vanno i pannelli. La produzione ora per ora viene da PVGIS per la posizione di Home Assistant.")}
+    ${y.warning === "pvgis_unavailable"
+      ? html`<div class="banner small" role="status">
+          PVGIS non risponde: per ora uso ${y.source === "pvgis" ? "la produzione scaricata per il tetto di prima" : "una produzione tipica del Sud Italia"}.
+          Riprovo più tardi.
+        </div>`
+      : nothing}
+    ${numberField("Inclinazione", roof.tilt_deg, "°", loc, (v) => patch({ tilt_deg: v }), { min: 0, max: 90, hint: "0° piano, 30° un tetto a falde tipico" })}
+    ${selectField("Orientamento", String(roof.azimuth_deg), orientations, (v) => patch({ azimuth_deg: Number(v) }))}
+    ${numberField("Perdite", roof.loss_pct, "%", loc, (v) => patch({ loss_pct: v }), { min: 0, max: 50, hint: "Cavi, inverter e sporco: di solito 14%" })}
+    <p class="small muted note">${yieldPhrase(ctx.config, f)}</p>
+  </div>`;
+}
+
 function renderCosts(ctx: SectionContext) {
   const { system: s, lifetime: l } = ctx.config.settings;
   const sys = setter(ctx, "system");
   const life = setter(ctx, "lifetime");
   const loc = ctx.locale;
   return html`
+    ${renderRoof(ctx)}
     <div class="card">
       ${cardHead("Impianto e batteria")}
       ${numberField("Costo FV chiavi in mano", s.cost_per_kwp, "€/kWp", loc, sys("cost_per_kwp"))}
@@ -310,6 +354,11 @@ function renderNotes() {
     <ul class="notes">
       <li>Simula ogni ora di un anno tipo: consumi, produzione FV, batteria, rete.</li>
       <li>
+        La produzione FV viene da PVGIS (Centro comune di ricerca della Commissione europea) per la posizione di Home Assistant e il tetto
+        scelto: di tutti gli anni scaricati uso quello con la produzione più vicina alla mediana, ora per ora. Senza PVGIS uso un anno tipico
+        del Sud Italia.
+      </li>
+      <li>
         I consumi vengono dal misuratore per i giorni registrati; il resto dell'anno è stimato dal consumo annuo con l'andamento scelto. Con un
         anno intero di storico conta solo lo storico. Gli orari della giornata vengono dal misuratore quando ha almeno 14 giorni.
       </li>
@@ -394,9 +443,10 @@ export const SECTIONS = {
     title: "Impianto e costi",
     summary: ({ config: c, f }) => {
       const s = c.settings.system;
-      return `FV ${f.eur(s.cost_per_kwp)}/kWp · batteria ${f.eur(s.cost_per_kwh)}/kWh · detrazione ${s.deduction_pct}%`;
+      const roof = c.settings.pv.roofs[0];
+      return `Tetto a ${orientationLabel(f, roof.azimuth_deg)}, ${f.num(roof.tilt_deg)}° · FV ${f.eur(s.cost_per_kwp)}/kWp · batteria ${f.eur(s.cost_per_kwh)}/kWh · detrazione ${s.deduction_pct}%`;
     },
-    warnings: () => [],
+    warnings: ({ config: c }) => (c.pv_yield.warning === "pvgis_unavailable" ? ["PVGIS non risponde"] : []),
     render: renderCosts,
   },
   taglie: {

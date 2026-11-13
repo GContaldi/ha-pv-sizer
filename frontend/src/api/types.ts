@@ -72,6 +72,19 @@ export interface HouseSettings {
   zones: HouseZone[];
 }
 
+/** One roof face. PVGIS convention for the azimuth: 0 = south, -90 = east, 90 = west. */
+export interface PvRoof {
+  tilt_deg: number;
+  azimuth_deg: number;
+  /** Cables, inverter, dirt: PVGIS suggests 14%. */
+  loss_pct: number;
+}
+
+/** Where the panels go; one roof for now, the list leaves room for split systems. */
+export interface PvSettings {
+  roofs: PvRoof[];
+}
+
 export interface Settings {
   tariff: Tariff;
   system: SystemCosts;
@@ -79,6 +92,7 @@ export interface Settings {
   scenarios: ScenarioSizes;
   consumption: ConsumptionSettings;
   house: HouseSettings;
+  pv: PvSettings;
 }
 
 interface LoadBase {
@@ -177,7 +191,19 @@ export interface PanelConfig {
   /** Whole-house meters; the grid import of the Energy dashboard comes first. */
   meter_options: SensorOption[];
   heat_pump_options: { id: string; label: string }[];
+  pv_yield: PvYield;
   derived: { grid_price_eur_kwh: number; fixed_annual_eur: number; house: HouseModel };
+}
+
+/** Where the hourly PV production of the calculation comes from. */
+export interface PvYield {
+  /** "pvgis": hourly series for the location and the roof; "model": built-in typical year for southern Italy. */
+  source: "pvgis" | "model";
+  /** PVGIS year closest to the median of the years fetched. */
+  year: number | null;
+  kwh_per_kwp: number;
+  /** PVGIS could not be reached for the current roof: the series is an earlier one, or the model. */
+  warning: "pvgis_unavailable" | null;
 }
 
 /** The house model for the current HouseSettings; loads turn it into electric kWh with their area. */

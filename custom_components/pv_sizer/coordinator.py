@@ -5,22 +5,28 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
-from datetime import date, timedelta
+import logging
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .engine.common import HORIZON_YEARS, round2
+from .engine.base import PV_KWH_PER_KWP
+from .engine.common import HORIZON_YEARS, js_round, jsum, round2
 from .engine.consumption import MeterHistory
 from .engine.detect import detect_load
 from .engine.history import day_shapes, meter_history, valid_days
 from .engine.house import heat_pump_options
 from .engine.results import Engine, Inputs
 from .history import EnergyPrefs, async_energy_prefs, async_energy_statistics, async_hourly_changes
+from .pvgis import PvgisError, async_fetch, roof_key
 from .storage import PvSizerStore
 
+_LOGGER = logging.getLogger(__name__)
+
 HISTORY_DAYS = 365
+PVGIS_RETRY = timedelta(hours=1)
 
 
 def _options(first: list[str], stats: dict[str, str], exclude: set[str]) -> list[dict[str, str]]:
@@ -48,6 +54,10 @@ class PvSizerCoordinator:
         self._detected_key: tuple[Any, ...] | None = None
         self.sensor_options: list[dict[str, str]] = []
         self.meter_options: list[dict[str, str]] = []
+        # PVGIS series in use (from the store cache) and whether it is stale.
+        self.pv: dict[str, Any] | None = None
+        self.pv_warning: str | None = None
+        self._pv_failed: tuple[str, datetime] | None = None
 
     async def async_setup(self) -> None:
         if self.store.is_new:
@@ -120,18 +130,54 @@ class PvSizerCoordinator:
 
         return await self.hass.async_add_executor_job(fold)
 
+    async def _async_refresh_pv(self) -> bool:
+        """PVGIS series for the current roof; True when the series in use changed."""
+        cfg = self.hass.config
+        key = roof_key(cfg.latitude, cfg.longitude, self.store.settings["pv"]["roofs"][0])
+        cached = self.store.cache.get("pvgis")
+        before = (self.pv, self.pv_warning)
+        if cached and cached.get("key") == key:
+            self.pv, self.pv_warning = cached, None
+            return before != (self.pv, self.pv_warning)
+        now = dt_util.utcnow()
+        if self._pv_failed and self._pv_failed[0] == key and now - self._pv_failed[1] < PVGIS_RETRY:
+            return False
+        try:
+            fetched = await async_fetch(self.hass, cfg.latitude, cfg.longitude, self.store.settings["pv"]["roofs"][0])
+        except PvgisError as err:
+            _LOGGER.warning("PVGIS not available, using %s: %s", "the last series" if cached else "the model", err)
+            self._pv_failed = (key, now)
+            self.pv, self.pv_warning = cached, "pvgis_unavailable"
+            return before != (self.pv, self.pv_warning)
+        entry = {"key": key, **fetched, "fetched": now.date().isoformat()}
+        await self.store.async_set_cache("pvgis", entry)
+        self.pv, self.pv_warning = entry, None
+        return True
+
+    def _pv_yield(self) -> dict[str, Any]:
+        pv = self.pv
+        return {
+            "source": "pvgis" if pv else "model",
+            "year": pv["year"] if pv else None,
+            "kwh_per_kwp": js_round(jsum(pv["hourly"]) if pv else jsum(PV_KWH_PER_KWP)),
+            "warning": self.pv_warning,
+        }
+
     def _inputs(self) -> Inputs:
         return Inputs(
             settings=self.store.settings,
             loads=self.store.loads,
             detected=self.detected,
             meter=self.meter,
+            pv_hourly=self.pv["hourly"] if self.pv else None,
             day_shapes=self.day_shapes,
         )
 
     async def _async_engine(self, compute: bool) -> Engine:
         async with self._lock:
             await self._async_refresh_data()
+            if await self._async_refresh_pv():
+                self.data_version += 1
             key = json.dumps([self.store.settings, self.store.loads, self.data_version], sort_keys=True)
             if self._engine is None or key != self._engine_key:
                 self._engine, self._engine_key, self._computed = Engine(self._inputs()), key, False
@@ -155,6 +201,7 @@ class PvSizerCoordinator:
             "sensor_options": self.sensor_options,
             "meter_options": self.meter_options,
             "heat_pump_options": heat_pump_options(),
+            "pv_yield": self._pv_yield(),
             "derived": {
                 "grid_price_eur_kwh": engine.prices.grid,
                 "fixed_annual_eur": round2(engine.prices.fixed_annual),
