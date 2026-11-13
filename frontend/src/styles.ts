@@ -69,6 +69,87 @@ export const shared = css`
     outline: 2px solid var(--primary-color);
     outline-offset: -1px;
   }
+  /* The native popup can open far from the field in webviews; draw the list in the page where supported. */
+  @supports (appearance: base-select) {
+    select,
+    select::picker(select) {
+      appearance: base-select;
+    }
+    select {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    select option {
+      white-space: normal;
+    }
+    /* Fields with long values use <button><selectedcontent> so the text ellipsizes and the chevron stays. */
+    select > button {
+      all: unset;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+    }
+    selectedcontent {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    select::picker-icon {
+      content: "";
+      flex: none;
+      width: 20px;
+      height: 20px;
+      margin-left: auto;
+      background: var(--secondary-text-color);
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6z'/%3E%3C/svg%3E")
+        center / 20px no-repeat;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6z'/%3E%3C/svg%3E")
+        center / 20px no-repeat;
+      transition: transform 0.15s;
+    }
+    select:open::picker-icon {
+      transform: rotate(180deg);
+    }
+    select::picker(select) {
+      margin-top: 4px;
+      padding: 4px 0;
+      max-height: 320px;
+      border: 1px solid var(--divider-color);
+      border-radius: 8px;
+      background: var(--card-background-color);
+      color: var(--primary-text-color);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+    select option {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    select option::checkmark {
+      display: none;
+    }
+    select option:hover,
+    select option:focus-visible {
+      background: var(--secondary-background-color);
+      outline: none;
+    }
+    select option:checked {
+      color: var(--primary-color);
+      font-weight: 500;
+      background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    }
+  }
   table {
     width: 100%;
     border-collapse: collapse;

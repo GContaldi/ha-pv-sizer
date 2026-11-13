@@ -73,6 +73,7 @@ export function selectField(
       ${fieldText(label, hint)}
       <span class="field-control ${wide ? "wide" : ""}">
         <select @change=${(e: Event) => onChange((e.target as HTMLSelectElement).value)}>
+          <button><selectedcontent></selectedcontent></button>
           ${options.map((o) => html`<option value=${o.value} ?selected=${o.value === value}>${o.label}</option>`)}
         </select>
       </span>
