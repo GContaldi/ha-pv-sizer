@@ -2,11 +2,16 @@
 // WebSocket contract in src/api/types.ts on synthetic data; never bundled.
 import type {
   CellSummary,
+  ClimateZone,
   ConsumptionSettings,
   CostItem,
   CycleLoad,
   DataInfo,
+  Emitter,
   HourProfile,
+  HouseModel,
+  HouseSettings,
+  Insulation,
   LoadDef,
   LoadDetected,
   LoadValue,
@@ -58,6 +63,8 @@ export const DEFAULT_SETTINGS: Settings = {
   lifetime: { degradation_pct: 0.5, price_increase_pct: 0, battery_life_years: 12, inverter_cost: 1200, inverter_year: 12 },
   scenarios: { pv_sizes_kwp: [3, 4.5, 6, 7.5, 9], battery_sizes_kwh: [5, 10, 15] },
   consumption: { meter_entity_id: null, annual_kwh: 6200, seasonal_profile: "pdc_heating" },
+  // Zone C is a guess for San Cipriano Picentino; the real backend proposes it from the location.
+  house: { climate_zone: "C", heated_area_m2: 100, insulation: "medium", emitter: "fancoil" },
 };
 
 function withDefaults(s: Partial<Settings> | undefined): Settings {
@@ -69,13 +76,56 @@ function withDefaults(s: Partial<Settings> | undefined): Settings {
     lifetime: { ...d.lifetime, ...s.lifetime },
     scenarios: normalizeSizes({ ...d.scenarios, ...s.scenarios }, d.scenarios),
     consumption: { ...d.consumption, ...s.consumption },
+    house: { ...d.house, ...s.house },
   };
 }
 
-/** Saved loads from before continuous loads existed are all cycle loads. */
+/** Saved loads without `kind` are cycle loads; continuous loads without `basis` are manual estimates. */
 function migrateLoads(loads: unknown): LoadDef[] | null {
   if (!Array.isArray(loads)) return null;
-  return loads.map((l: LoadDef) => ("kind" in l ? l : { ...(l as object), kind: "cycle" }) as LoadDef);
+  return loads.map((l: LoadDef) => {
+    if (!("kind" in l)) return { ...(l as object), kind: "cycle" } as LoadDef;
+    if (l.kind === "continuous" && !("basis" in l)) return { ...(l as object), use: null, basis: "manual", area_m2: null } as LoadDef;
+    return l;
+  });
+}
+
+// House model. Heating: thermal kWh/m² = degree days × need per degree day, spread over the
+// legal heating period (DPR 74/2013); electric = thermal ÷ SCOP. Cooling: thermal kWh/m² per zone ÷ SEER.
+const ZONE_GG: Record<ClimateZone, number> = { A: 500, B: 750, C: 1150, D: 1750, E: 2550, F: 3300 };
+/** Share of each month inside the heating period, Jan..Dec. */
+const HEATING_PERIOD: Record<ClimateZone, number[]> = {
+  A: [1, 1, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 1], // 1/12 – 15/3
+  B: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1], // 1/12 – 31/3
+  C: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0.5, 1], // 15/11 – 31/3
+  D: [1, 1, 1, 0.5, 0, 0, 0, 0, 0, 0, 1, 1], // 1/11 – 15/4
+  E: [1, 1, 1, 0.5, 0, 0, 0, 0, 0, 0.5, 1, 1], // 15/10 – 15/4
+  F: [1, 1, 1, 1, 0.5, 0, 0, 0, 0.5, 1, 1, 1], // no limit
+};
+/** Heating need per day relative to January. */
+const HDD_SHAPE = [1, 0.9, 0.7, 0.45, 0.25, 0.08, 0.03, 0.03, 0.15, 0.35, 0.6, 0.9];
+const NEED_PER_GG: Record<Insulation, number> = { good: 0.02, medium: 0.045, poor: 0.08 };
+const SCOP: Record<Emitter, number> = { floor: 4.0, fancoil: 3.5, radiators: 2.8 };
+const SCOP_ZONE: Record<ClimateZone, number> = { A: 0.2, B: 0.2, C: 0, D: 0, E: -0.3, F: -0.3 };
+const COOLING_KWH_M2: Record<ClimateZone, number> = { A: 40, B: 35, C: 30, D: 22, E: 12, F: 5 };
+const COOLING_INSULATION: Record<Insulation, number> = { good: 0.7, medium: 1, poor: 1.3 };
+const COOLING_SHAPE = [0, 0, 0, 0, 0, 0.15, 0.35, 0.35, 0.15, 0, 0, 0];
+const SEER = 4.5;
+
+function houseModel(h: HouseSettings): HouseModel {
+  const zone = ZONE_GG[h.climate_zone] ? h.climate_zone : "C";
+  const gg = ZONE_GG[zone];
+  const heatWeights = normalize(HDD_SHAPE.map((v, m) => v * HEATING_PERIOD[zone][m] * DAYS_IN_MONTH[m]));
+  const heatTotal = gg * (NEED_PER_GG[h.insulation] ?? NEED_PER_GG.medium);
+  const coolTotal = COOLING_KWH_M2[zone] * (COOLING_INSULATION[h.insulation] ?? 1);
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  return {
+    heating_kwh_th_m2: heatWeights.map((w) => r3(w * heatTotal)),
+    cooling_kwh_th_m2: normalize(COOLING_SHAPE).map((w) => r3(w * coolTotal)),
+    scop: round2((SCOP[h.emitter] ?? SCOP.fancoil) + SCOP_ZONE[zone]),
+    seer: SEER,
+    gg,
+  };
 }
 
 // Whole-house meters; the first one is the grid import of the Energy dashboard.
@@ -187,7 +237,7 @@ export const DEFAULT_LOADS: LoadDef[] = [
   { id: "asciugatrice", kind: "cycle", name: "Asciugatrice", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.6, duration_h: 2, cycles_per_week: 4, usual_time: "any", shiftable: true, window_start: 9, window_end: 18, after: "lavatrice" },
   { id: "lavastoviglie", kind: "cycle", name: "Lavastoviglie", source: "estimate", sensor_entity_id: null, kwh_per_cycle: 1.0, duration_h: 3, cycles_per_week: 5, usual_time: "evening", shiftable: true, window_start: 9, window_end: 18, after: null },
   { id: "acs", kind: "cycle", name: "Acqua calda (PDC)", source: "sensor", sensor_entity_id: "sensor.demo_acs_energia", kwh_per_cycle: 2.4, duration_h: 2, cycles_per_week: 7, usual_time: "morning", shiftable: true, window_start: 10, window_end: 16, after: null },
-  { id: "pdc_riscaldamento", kind: "continuous", name: "PDC riscaldamento", source: "estimate", sensor_entity_id: null, kwh_per_day: 12, months: [11, 12, 1, 2, 3], hour_profile: "heating", shiftable: true, shift_share: 0.3, shift_advance_h: 3 },
+  { id: "pdc_riscaldamento", kind: "continuous", name: "PDC riscaldamento", source: "estimate", sensor_entity_id: null, use: "heating", basis: "house", area_m2: null, kwh_per_day: 12, months: [11, 12, 1, 2, 3], hour_profile: "heating", shiftable: true, shift_share: 0.3, shift_advance_h: 3 },
 ];
 
 type Prices = { grid: number; fixedAnnual: number; rid: number };
@@ -245,7 +295,8 @@ function pickWeighted(weights: number[], r: number): number {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-function toLoadCfgs(loads: LoadDef[]): { cycles: CycleCfg[]; conts: ContCfg[] } {
+function toLoadCfgs(loads: LoadDef[], house: HouseSettings): { cycles: CycleCfg[]; conts: ContCfg[] } {
+  const ctx = { detected: DETECTED, house, model: houseModel(house) };
   const cycleLoads = loads.filter((l): l is CycleLoad => l.kind === "cycle");
   const cycles = cycleLoads.map((l): CycleCfg => {
     const use = effectiveUsage(l, DETECTED);
@@ -270,7 +321,7 @@ function toLoadCfgs(loads: LoadDef[]): { cycles: CycleCfg[]; conts: ContCfg[] } 
   });
   const conts = loads.flatMap((l, idx): ContCfg[] => {
     if (l.kind !== "continuous") return [];
-    const use = continuousUsage(l, DETECTED);
+    const use = continuousUsage(l, ctx);
     return [
       {
         idx,
@@ -605,7 +656,7 @@ export class DemoBackend {
     if (this.cache?.key === cacheKey) return this.cache;
     const { monthly } = blendConsumption(this.settings.consumption);
     if (!monthly) throw new Error("Mancano i dati di consumo: scegli un misuratore o inserisci il consumo annuo.");
-    const cfgs = toLoadCfgs(this.loads);
+    const cfgs = toLoadCfgs(this.loads, this.settings.house);
     const prices = this.prices();
     const sys = this.settings.system;
     const bat: BatteryCfg = {
@@ -673,7 +724,7 @@ export class DemoBackend {
       detected: DETECTED,
       sensor_options: SENSOR_OPTIONS,
       meter_options: METER_OPTIONS,
-      derived: { grid_price_eur_kwh: prices.grid, fixed_annual_eur: round2(prices.fixedAnnual) },
+      derived: { grid_price_eur_kwh: prices.grid, fixed_annual_eur: round2(prices.fixedAnnual), house: houseModel(this.settings.house) },
     };
   }
 

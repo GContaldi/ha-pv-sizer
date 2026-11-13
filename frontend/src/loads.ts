@@ -1,4 +1,4 @@
-import type { ContinuousLoad, CycleLoad, HourProfile, LoadDef, LoadDetected, UsualTime } from "./api/types";
+import type { ContinuousLoad, CycleLoad, HourProfile, HouseModel, HouseSettings, LoadDef, LoadDetected, PanelConfig, UsualTime } from "./api/types";
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 export const MONTH_SHORT = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
@@ -15,14 +15,44 @@ export function effectiveUsage(load: CycleLoad, detected: LoadDetected[]) {
     : { measured: undefined, perWeek: load.cycles_per_week, kwh: load.kwh_per_cycle, hours: load.duration_h };
 }
 
-/** Same for continuous loads: kWh/day for each month (0 = off), from the sensor or the estimate. */
-export function continuousUsage(load: ContinuousLoad, detected: LoadDetected[]) {
-  const measured = sensorStats(load, detected)?.continuous;
-  const kwhByMonth = measured ? measured.kwh_per_day_by_month : DAYS_IN_MONTH.map((_, m) => (load.months.includes(m + 1) ? load.kwh_per_day : 0));
-  const active = kwhByMonth.map((v, m) => (v > 0 ? m + 1 : 0)).filter((m) => m > 0);
+export interface UsageContext {
+  detected: LoadDetected[];
+  house: HouseSettings;
+  model: HouseModel;
+}
+
+export const usageContext = (c: PanelConfig): UsageContext => ({ detected: c.detected, house: c.settings.house, model: c.derived.house });
+
+/**
+ * Same for continuous loads: kWh/day for each month (0 = off), from the sensor, the house model
+ * (thermal kWh × m² ÷ efficiency) or the manual estimate.
+ */
+export function continuousUsage(load: ContinuousLoad, ctx: UsageContext) {
+  const measured = sensorStats(load, ctx.detected)?.continuous;
+  const wantsHouse = !measured && load.source === "estimate" && load.basis === "house" && load.use !== null;
+  const area = load.area_m2 ?? ctx.house.heated_area_m2;
+  const fromHouse = wantsHouse && area !== null && area > 0;
+  let kwhByMonth: number[];
+  if (measured) kwhByMonth = measured.kwh_per_day_by_month;
+  else if (fromHouse) {
+    const heating = load.use === "heating";
+    const thermal = heating ? ctx.model.heating_kwh_th_m2 : ctx.model.cooling_kwh_th_m2;
+    const eff = heating ? ctx.model.scop : ctx.model.seer;
+    kwhByMonth = thermal.map((v, m) => (v * area!) / eff / DAYS_IN_MONTH[m]);
+  } else kwhByMonth = DAYS_IN_MONTH.map((_, m) => (load.months.includes(m + 1) ? load.kwh_per_day : 0));
+  const active = kwhByMonth.map((v, m) => (v > 0.005 ? m + 1 : 0)).filter((m) => m > 0);
   const activeDays = active.reduce((a, m) => a + DAYS_IN_MONTH[m - 1], 0);
   const yearKwh = kwhByMonth.reduce((a, v, m) => a + v * DAYS_IN_MONTH[m], 0);
-  return { measured, kwhByMonth, months: active, perDay: activeDays ? yearKwh / activeDays : 0, yearKwh };
+  return {
+    measured,
+    fromHouse,
+    /** Wants the house model but the house has no heated area yet. */
+    needsArea: wantsHouse && !fromHouse,
+    kwhByMonth,
+    months: active,
+    perDay: activeDays ? yearKwh / activeDays : 0,
+    yearKwh,
+  };
 }
 
 export const HOUR_PROFILE_LABEL: Record<HourProfile, string> = {

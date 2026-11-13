@@ -12,7 +12,10 @@ export interface LoadPreset {
 }
 
 const cycle = { kind: "cycle", source: "estimate", sensor_entity_id: null, shiftable: true, window_start: 9, window_end: 18, after: null } as const;
-const continuous = { kind: "continuous", source: "estimate", sensor_entity_id: null } as const;
+const continuous = { kind: "continuous", source: "estimate", sensor_entity_id: null, use: null, basis: "manual", area_m2: null } as const;
+/** Computed from the house; kwh_per_day and months are used until the house has a heated area. */
+const heating = { ...continuous, use: "heating", basis: "house" } as const;
+const cooling = { ...continuous, use: "cooling", basis: "house" } as const;
 const WINTER = [11, 12, 1, 2, 3];
 const SUMMER = [6, 7, 8, 9];
 
@@ -39,15 +42,15 @@ export const LOAD_PRESETS: LoadPreset[] = [
   { key: "boiler", load: { ...cycle, name: "Boiler elettrico", kwh_per_cycle: 3, duration_h: 2, cycles_per_week: 7, usual_time: "morning", window_start: 10, window_end: 16 } },
   {
     key: "pdc_heating",
-    load: { ...continuous, name: "PDC riscaldamento", kwh_per_day: 12, months: WINTER, hour_profile: "heating", shiftable: true, shift_share: 0.3, shift_advance_h: 3 },
+    load: { ...heating, name: "PDC riscaldamento", kwh_per_day: 12, months: WINTER, hour_profile: "heating", shiftable: true, shift_share: 0.3, shift_advance_h: 3 },
   },
   {
     key: "pdc_cooling",
-    load: { ...continuous, name: "PDC raffrescamento", kwh_per_day: 6, months: SUMMER, hour_profile: "cooling", shiftable: true, shift_share: 0.3, shift_advance_h: 2 },
+    load: { ...cooling, name: "PDC raffrescamento", kwh_per_day: 6, months: SUMMER, hour_profile: "cooling", shiftable: true, shift_share: 0.3, shift_advance_h: 2 },
   },
   {
     key: "clima",
-    load: { ...continuous, name: "Climatizzatori", kwh_per_day: 4, months: SUMMER, hour_profile: "cooling", shiftable: true, shift_share: 0.2, shift_advance_h: 2 },
+    load: { ...cooling, name: "Climatizzatori", area_m2: 40, kwh_per_day: 4, months: SUMMER, hour_profile: "cooling", shiftable: true, shift_share: 0.2, shift_advance_h: 2 },
   },
   {
     key: "fancoil",
@@ -71,4 +74,5 @@ export const LOAD_LIMITS = {
   kwh_per_day: { min: 0.1, max: 80 },
   shift_share_pct: { min: 5, max: 50, integer: true },
   shift_advance_h: { min: 1, max: 4, integer: true },
+  area_m2: { min: 5, max: 2000, integer: true },
 };

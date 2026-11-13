@@ -49,12 +49,26 @@ export interface ConsumptionSettings {
   seasonal_profile: SeasonalProfile;
 }
 
+export type ClimateZone = "A" | "B" | "C" | "D" | "E" | "F";
+/** good: new or renovated · medium: 1990s–2000s, partly insulated · poor: not insulated. */
+export type Insulation = "good" | "medium" | "poor";
+export type Emitter = "floor" | "fancoil" | "radiators";
+
+/** What heat pump and air conditioning estimates are computed from. */
+export interface HouseSettings {
+  climate_zone: ClimateZone;
+  heated_area_m2: number | null;
+  insulation: Insulation;
+  emitter: Emitter;
+}
+
 export interface Settings {
   tariff: Tariff;
   system: SystemCosts;
   lifetime: Lifetime;
   scenarios: ScenarioSizes;
   consumption: ConsumptionSettings;
+  house: HouseSettings;
 }
 
 interface LoadBase {
@@ -83,7 +97,13 @@ export type HourProfile = "flat" | "heating" | "cooling";
 /** Draws power every day of its active months (heat pump, air conditioning, ventilation). */
 export interface ContinuousLoad extends LoadBase {
   kind: "continuous";
-  /** In the active months. */
+  /** Heats or cools the house, so it can be computed from HouseSettings. */
+  use: "heating" | "cooling" | null;
+  /** "house": kWh per month from the house model (needs `use` and a heated area); "manual": kwh_per_day × months. */
+  basis: "house" | "manual";
+  /** Area served; null = the whole heated area. */
+  area_m2: number | null;
+  /** Manual estimate: kWh/day in the active months. */
   kwh_per_day: number;
   /** 1..12 */
   months: number[];
@@ -146,7 +166,19 @@ export interface PanelConfig {
   sensor_options: SensorOption[];
   /** Whole-house meters; the grid import of the Energy dashboard comes first. */
   meter_options: SensorOption[];
-  derived: { grid_price_eur_kwh: number; fixed_annual_eur: number };
+  derived: { grid_price_eur_kwh: number; fixed_annual_eur: number; house: HouseModel };
+}
+
+/** The house model for the current HouseSettings; loads turn it into electric kWh with their area. */
+export interface HouseModel {
+  /** Thermal kWh per m², 12 months. */
+  heating_kwh_th_m2: number[];
+  cooling_kwh_th_m2: number[];
+  /** Seasonal efficiencies: electric kWh = thermal kWh ÷ scop (or seer). */
+  scop: number;
+  seer: number;
+  /** Heating degree days of the climate zone. */
+  gg: number;
 }
 
 export interface CellSummary {

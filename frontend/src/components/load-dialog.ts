@@ -4,7 +4,7 @@ import type { ContinuousLoad, CycleLoad, HourProfile, LoadDef, PanelConfig, Usua
 import { hourOptions, numberField, selectField, switchField } from "../fields";
 import { MONTHS, formatters, type Formatters } from "../format";
 import { LOAD_LIMITS, LOAD_PRESETS, OTHER_CONTINUOUS, OTHER_CYCLE, type LoadPreset } from "../load-presets";
-import { HOUR_PROFILE_LABEL, USUAL_TIME_LABEL, continuousUsage, createsLoop, effectiveUsage, monthsLabel, usualPhrase } from "../loads";
+import { HOUR_PROFILE_LABEL, USUAL_TIME_LABEL, continuousUsage, createsLoop, effectiveUsage, monthsLabel, usageContext, usualPhrase } from "../loads";
 import { shared } from "../styles";
 
 const NEW_ID = "__new__";
@@ -453,7 +453,7 @@ export class PvLoadDialog extends LitElement {
   }
 
   private renderContinuousSensor(f: Formatters, d: ContinuousLoad) {
-    const use = continuousUsage(d, this.config.detected);
+    const use = continuousUsage(d, usageContext(this.config));
     const det = use.measured;
     const max = det ? Math.max(0.1, ...det.kwh_per_day_by_month) : 1;
     return html`
