@@ -2,18 +2,19 @@
 name = "ha-pv-sizer"
 version = "0.1.0"
 description = "Home Assistant integration to size photovoltaics and batteries on your own consumption."
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = "MIT"
 
 [dependency-groups]
 dev = [
+    "home-assistant-frontend==20260930.5",
     "pytest-homeassistant-custom-component",
     "ruff",
 ]
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "ASYNC"]

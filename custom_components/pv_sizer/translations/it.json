@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PV Sizer",
+        "description": "Aggiunge il pannello Fotovoltaico alla barra laterale (solo amministratori). Usa la posizione di Home Assistant e lo storico dei consumi."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "PV Sizer è già configurato."
+    }
+  }
+}

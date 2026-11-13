@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PV Sizer",
+        "description": "Adds the Fotovoltaico panel to the sidebar (admins only). It uses the location of Home Assistant and your consumption history."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "PV Sizer is already set up."
+    }
+  }
+}
